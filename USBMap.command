@@ -19,6 +19,7 @@ class USBMap:
         self.cs = u"\u001b[32;1m"
         self.ce = u"\u001b[0m"
         self.bs = u"\u001b[36;1m"
+        self.rs = u"\u001b[31;1m"
         # Following values from RehabMan's USBInjectAll.kext:
         # https://github.com/RehabMan/OS-X-USB-Inject-All/blob/master/USBInjectAll/USBInjectAll-Info.plist
         self.usb_plist = { 
@@ -136,7 +137,7 @@ class USBMap:
         matched = []
         for line in ioreg_text.split("\n"):
             match = self.usb_re.search(line)
-            if match and "@1" in line and "USB" in line:
+            if match and "@1" in line and "USB" in line and not "HS15" in line:
                 # format the line
                 l = line.split("+-o ")[1].split(" ")[0]
                 c = line.split("<class ")[1].split(",")[0]
@@ -243,7 +244,7 @@ class USBMap:
             count  = 0
             extras = 0
             pad    = 8
-            for port in sorted(new):
+            for port in self.sort(new):
                 count += 1
                 if new[port]["selected"] and not original[port]["selected"]:
                     original[port]["selected"] = True
@@ -256,7 +257,7 @@ class USBMap:
                 p = original[port]["port"]
                 n = port
                 t = original[port]["type"]
-                ptext = "[{}] {}. {} - Port {} - Type {}".format("#" if s else " ", count, n, hex(p), t)
+                ptext = "{}. {} - Port {} - Type {}".format(count, n, hex(p), t)
                 if port == last_added:
                     ptext = self.cs + ptext + self.ce
                 elif s:
@@ -329,7 +330,10 @@ class USBMap:
         m = self.get_model()
         # Separate by types and build the proper setups
         ports = {}
-        for u in p:
+        count = 0
+        top = 0
+        for u in self.sort(p):
+            count += 1
             # Skip if it's skipped
             if not p[u]["selected"]:
                 continue
@@ -342,30 +346,18 @@ class USBMap:
                     # Setup defaults
                     ports[m+"-"+c][x] = self.usb_plist[c][x]
                 # Add the necessary info for all of them
-                # ports[m+"-"+c]["CFBundleIdentifier"] = "com.apple.driver.AppleUSBHostMergeProperties"
                 ports[m+"-"+c]["IOClass"] = "AppleUSBHostMergeProperties"
                 ports[m+"-"+c]["IOClass"] = "USBInjectAll"
                 ports[m+"-"+c]["IOProviderMergeProperties"] = {
                     "port-count" : 0,
                     "ports" : {}
                 }
+            top = count
             ports[m+"-"+c]["IOProviderMergeProperties"]["ports"][u] = {
                 "UsbConnector" : p[u]["type"],
-                "port" : p[u]["port"]
+                "port" : self.hex_to_data(top)
             }
-        # At this point - we should have our whole thing mapped out - but our port counts
-        # and ports are still ints
-        for t in ports:
-            top = 0
-            for y in ports[t]["IOProviderMergeProperties"]["ports"]:
-                test = ports[t]["IOProviderMergeProperties"]["ports"][y]["port"]
-                if test > top:
-                    top = test
-                # Convert to hex, padd with 0's, reverse, and convert to
-                # bytes
-                ports[t]["IOProviderMergeProperties"]["ports"][y]["port"] = self.hex_to_data(test)
-            # Set the top
-            ports[t]["IOProviderMergeProperties"]["port-count"] = self.hex_to_data(top)
+            ports[m+"-"+c]["IOProviderMergeProperties"]["port-count"] = self.hex_to_data(top)
 
         # Let's add our initial vars too
         final_dict = {
@@ -487,7 +479,10 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # Initialize and format the data
         ports = {}
         excluded = []
-        for u in p:
+        count = 0
+        top = 0
+        for u in self.sort(p):
+            count += 1
             # Gather a list of enabled ports
             # populates XHC, EH01, EH02, HUB1, and HUB2
             # Skip if it's skipped
@@ -508,23 +503,25 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 # Current port is higher numbered - replace
                 ports[c]["port-count"] = p[u]["port"]
             # Add the port itself
+            top = count
             ports[c]["ports"][u] = {
                 "UsbConnector": p[u]["type"],
-                "port": p[u]["port"]
+                # "port": p[u]["port"]
+                "port": top
             }
         # All ports should be mapped correctly - let's walk
         # the controllers and format accordingly
-        for c in sorted(ports):
+        for c in self.sort(ports):
             # Got a controller, let's add it
             d = c if not c == "XHC" else self.xch_devid
             # Build the header
             dsl = self.al(dsl, '"{}", Package()'.format(d), 3)
             dsl = self.al(dsl, '{', 3)
-            dsl = self.al(dsl, '"port-count", Buffer() { '+str(ports[c]["port-count"])+', 0, 0, 0 },', 4)
+            dsl = self.al(dsl, '"port-count", Buffer() { '+str(count)+', 0, 0, 0 },', 4)
             dsl = self.al(dsl, '"ports", Package()', 4)
             dsl = self.al(dsl, '{', 4)
             # Add the ports
-            for p in sorted(ports[c]["ports"]):
+            for p in self.sort(ports[c]["ports"]):
                 port = ports[c]["ports"][p]
                 # Port header
                 dsl = self.al(dsl, '"{}", Package()'.format(p), 5)
@@ -540,6 +537,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     dsl = self.al(dsl, '"UsbConnector", {},'.format(port["UsbConnector"]), 6)
                 # Add the port
                 dsl = self.al(dsl, '"port", Buffer() { '+str(port["port"])+', 0, 0, 0 },', 6)
+                # dsl = self.al(dsl, '"port", Buffer() { '+str(count)+', 0, 0, 0 },', 6)
                 # Close the package
                 dsl = self.al(dsl, "},", 5)
             # Close the port-count buffer
@@ -603,22 +601,35 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             self.u.head("Edit USB.plist")
             print("")
             count  = 0
-            pad    = 14
+            pad    = 19
             extras = 0
-            for u in sorted(p):
+            sel    = 0
+            for u in self.sort(p):
                 count += 1
                 # Print out the port
                 s = p[u]["selected"]
                 r = p[u]["port"]
                 n = u
                 t = p[u]["type"]
-                print("[{}] {}. {} - Port {} - Type {}".format("#" if s else " ", count, n, hex(r), t))
+                ptext = "[{}] {}. {} - Type {}".format("#" if s else " ", count, n, t)
+                if s:
+                    sel += 1
+                    ptext = self.bs + ptext + self.ce
+                print(ptext)
                 if len(p[u]["items"]):
                     extras += len(p[u]["items"])
                     print("\n".join(["     - {}".format(x) for x in p[u]["items"]]))
+            print("")
+            if sel < 1 or sel > 15:
+                ptext = "{}Selected: {}{}".format(self.rs, sel, self.ce)
+            else:
+                ptext = "{}Selected: {}{}".format(self.cs, sel, self.ce)
+            print(ptext)
             h = count+extras+pad if count+extras+pad > 24 else 24
             self.u.resize(80, h)
             print("M. Main Menu")
+            print("A. Select All")
+            print("N. Select None")
             print("K. Build USBMap.kext")
             print("S. Build SSDT-UIAC.dsl")
             print("T. Show Types")
@@ -643,6 +654,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             elif menu.lower() == "s":
                 self.build_ssdt()
                 return
+            elif menu.lower() in ["a","n"]:
+                setto = (menu.lower() == "a")
+                for u in self.sort(p):
+                    p[u]["selected"] = setto
+                # Flush changes
+                with open(self.plist, "wb") as f:
+                    plist.dump(p, f)
+                continue
             # Check if we need to toggle
             if menu[0].lower() == "t":
                 # We should have a type
@@ -654,7 +673,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                             # Out of bounds - skip
                             continue
                         # Valid index
-                        p[sorted(p)[x-1]]["type"] = t
+                        p[self.sort(p)[x-1]]["type"] = t
                 except:
                     # Didn't work - something didn't work - bail
                     pass
@@ -663,12 +682,126 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 try:
                     nums = [int(x) for x in menu.replace(" ","").split(",")]
                     for x in nums:
-                        p[sorted(p)[x-1]]["selected"] ^= True
+                        p[self.sort(p)[x-1]]["selected"] ^= True
                 except:
                     pass
             # Flush changes
             with open(self.plist, "wb") as f:
                 plist.dump(p, f)
+
+    def get_kb_ms(self):
+        p = self.get_by_port()
+        if not len(p):
+            self.u.head("Something's Not Right")
+            print("")
+            print("Was unable to locate any valid ports.")
+            print("Please ensure you have XHC/EH01/EH02 in your IOReg")
+            print("")
+            self.u.grab("Press [enter] to return...")
+            return
+        # Auto select those that are populated
+        for u in p:
+            if len(p[u]["items"]):
+                p[u]["selected"] = True
+        while True:
+            self.u.head("Select Keyboard And Mouse")
+            print("")
+            count  = 0
+            pad    = 14
+            extras = 0
+            sel    = 0
+            for u in self.sort(p):
+                count += 1
+                # Print out the port
+                s = p[u]["selected"]
+                r = p[u]["port"]
+                n = u
+                t = p[u]["type"]
+                ptext = "[{}] {}. {} - Type {}".format("#" if s else " ", count, n, t)
+                if s:
+                    sel += 1
+                    ptext = self.bs + ptext + self.ce
+                print(ptext)
+                if len(p[u]["items"]):
+                    extras += len(p[u]["items"])
+                    print("\n".join(["     - {}".format(x) for x in p[u]["items"]]))
+            print("")
+            if sel < 1 or sel > 2:
+                ptext = "{}Selected: {}{}".format(self.rs, sel, self.ce)
+            else:
+                ptext = "{}Selected: {}{}".format(self.cs, sel, self.ce)
+            print(ptext)
+            h = count+extras+pad if count+extras+pad > 24 else 24
+            self.u.resize(80, h)
+            print("C. Confirm")
+            print("M. Main Menu")
+            print("Q. Quit")
+            print("")
+            print("Select ports to toggle with comma-delimited lists (eg. 1,2,3,4,5)")
+            print("")
+            menu = self.u.grab("Please make your selection:  ")
+            if not len(menu):
+                continue
+            if menu.lower() == "q":
+                self.u.custom_quit()
+            elif menu.lower() == "m":
+                return None
+            elif menu.lower() == "c":
+                return self.sort([x for x in p if p[x]["selected"]])
+            else:
+                # Maybe a list of numbers?
+                try:
+                    nums = [int(x) for x in menu.replace(" ","").split(",")]
+                    for x in nums:
+                        p[self.sort(p)[x-1]]["selected"] ^= True
+                except:
+                    pass
+
+    def get_uia_args(self):
+        bootargs = self.r.run({"args":"nvram -p | grep boot-args", "shell":True})[0]
+        if not len(bootargs):
+            return []
+        arglist = bootargs.split("\t")[1].strip("\n").replace('"',"").replace("'","").split(" ") # split by space
+        uia = []
+        for arg in arglist:
+            if "uia_" in arg:
+                uia.append(arg)
+        return uia
+
+    def get_non_uia_args(self):
+        bootargs = self.r.run({"args":"nvram -p | grep boot-args", "shell":True})[0]
+        if not len(bootargs):
+            return []
+        arglist = bootargs.split("\t")[1].strip("\n").replace('"',"").replace("'","").split(" ") # split by space
+        uia = []
+        for arg in arglist:
+            if not "uia_" in arg:
+                uia.append(arg)
+        return uia
+
+    def sort(self, usblist):
+        # Custom sorting based on prefixes
+        #
+        # Prefix order needed = HSxx, USRx, SSxx
+        newlist = []
+        hslist  = []
+        usrlist = []
+        sslist  = []
+        rest    = []
+        for x in usblist:
+            if x.startswith("HS"):
+                hslist.append(x)
+            elif x.startswith("SS"):
+                sslist.append(x)
+            elif x.startswith("USR"):
+                usrlist.append(x)
+            else:
+                rest.append(x)
+        newlist.extend(sorted(hslist))
+        newlist.extend(sorted(usrlist))
+        newlist.extend(sorted(sslist))
+        newlist.extend(sorted(rest))
+        return newlist
 
     def main(self):
         self.u.resize(80, 24)
@@ -679,6 +812,16 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             print("Plist: {}".format(self.plist))
         else:
             print("Plist: None")
+        print("")
+        args = self.get_uia_args()
+        if len(args):
+            print("UIA Boot Args: {}".format(" ".join(args)))
+        else:
+            print("UIA Boot Args: None")
+        print("")
+        print("H. Exclude HSxx Ports")
+        print("S. Exclude SSxx Ports")
+        print("C. Clear Exclusions")
         print("")
         print("R. Remove Plist")
         print("P. Edit Plist/Build Kext")
@@ -716,6 +859,35 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 os.unlink(self.plist)
         elif menu.lower() == "p":
             self.edit_plist()
+        elif menu.lower() == "c":
+            self.u.head("Clearing UIA Related Args")
+            print("")
+            args = self.get_non_uia_args()
+            if not len(args):
+                print("sudo nvram -d boot-args")
+                self.r.run({"args":["nvram","-d","boot-args"],"sudo":True,"stream":True})
+            else:
+                print('sudo nvram boot-args="{}"'.format(" ".join(args)))
+                self.r.run({"args":["nvram",'boot-args="{}"'.format(" ".join(args))],"sudo":True,"stream":True})
+        elif menu.lower() == "s":
+            self.u.head("Excluding SSxx Ports")
+            print("")
+            args = self.get_non_uia_args()
+            args.append("-uia_exclude_ss")
+            print('sudo nvram boot-args="{}"'.format(" ".join(args)))
+            self.r.run({"args":["nvram",'boot-args="{}"'.format(" ".join(args))],"sudo":True,"stream":True})
+        elif menu.lower() == "h":
+            keep = self.get_kb_ms()
+            if keep == None:
+                return
+            # Got something to exclude - let's add the args
+            self.u.head("Excluding HSxx Ports")
+            print("")
+            args = self.get_non_uia_args()
+            args.append("-uia_exclude_sh")
+            args.append("uia_include={}".format(",".join(keep)))
+            print('sudo nvram boot-args="{}"'.format(" ".join(args)))
+            self.r.run({"args":["nvram",'boot-args="{}"'.format(" ".join(args))],"sudo":True,"stream":True})
         return
 
 u = USBMap()
