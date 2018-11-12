@@ -822,6 +822,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         else:
             print("UIA Boot Args: None")
         print("")
+        if os.path.exists("Exclusion-Arg.txt"):
+            print("E. Apply Exclusion-Arg.txt")
         print("H. Exclude HSxx Ports")
         print("S. Exclude SSxx Ports")
         print("C. Clear Exclusions")
@@ -862,6 +864,17 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 os.unlink(self.plist)
         elif menu.lower() == "p":
             self.edit_plist()
+        elif menu.lower() == "e" and os.path.exists("Exclusion-Arg.txt"):
+            with open("Exclusion-Arg.txt", "r") as f:
+                ea = f.read().strip()
+            if not len(ea):
+                return
+            self.u.head("Adding Exclusion-Arg.txt Contents")
+            print("")
+            args = self.get_non_uia_args()
+            args.append(ea)
+            print('sudo nvram boot-args="{}"'.format(" ".join(args)))
+            self.r.run({"args":["nvram",'boot-args="{}"'.format(" ".join(args))],"sudo":True,"stream":True})
         elif menu.lower() == "c":
             self.u.head("Clearing UIA Related Args")
             print("")
