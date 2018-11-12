@@ -1,15 +1,19 @@
 #!/usr/bin/python
-import os, sys, re, pprint, binascii, plistlib, shutil
+import os, sys, re, pprint, binascii, plistlib, shutil, tempfile, zipfile
 from Scripts import *
 
 class USBMap:
     def __init__(self):
         self.u = utils.Utils("USBMap")
         self.r = run.Run()
+        self.d = downloader.Downloader()
+        self.iasl_url = "https://bitbucket.org/RehabMan/acpica/downloads/iasl.zip"
+        self.iasl = None
         self.re = reveal.Reveal()
         self.scripts = "Scripts"
         self.usb_re = re.compile("(SS|SSP|HS|HP|PR|USR)[a-fA-F0-9]{1,2}@[a-fA-F0-9]{1,}")
         self.usb_dict = {}
+        self.xch_devid = self.get_xhc_devid()
         self.plist = "usb.plist"
         self.disc_wait = 5
         self.cs = u"\u001b[32;1m"
@@ -108,6 +112,20 @@ class USBMap:
                     for d in v:
                         for result in self.gen_dict_extract(value, d):
                             yield result
+
+    def get_xhc_devid(self):
+        # attempts to get the xhc dev id
+        ioreg_text = self.r.run({"args":["ioreg","-p","IODeviceTree", "-n", "XHC@14"]})[0]
+        for line in ioreg_text.split("\n"):
+            if "device-id" in line:
+                try:
+                    i = line.split("<")[1].split(">")[0][:4]
+                    return "8086_"+i[-2:]+i[:2]
+                except:
+                    # Issues - break
+                    break
+        # Not found, or issues - return generic
+        return "8086_xxxx"
 
     def get_ports(self, ioreg_text = None):
         if os.path.exists("usb.txt"):
@@ -299,9 +317,14 @@ class USBMap:
         return plistlib.Data(hex_bytes)
 
     def build_kext(self):
+        self.u.resize(80, 24)
+        self.u.head("Creating USBMap.kext")
+        print("")
+        print("Loading plist...")
         # Builds the kext itself
         with open(self.plist, "rb") as f:
             p = plist.load(f)
+        print("Generating Info.plist...")
         # Get the model number
         m = self.get_model()
         # Separate by types and build the proper setups
@@ -319,8 +342,9 @@ class USBMap:
                     # Setup defaults
                     ports[m+"-"+c][x] = self.usb_plist[c][x]
                 # Add the necessary info for all of them
-                ports[m+"-"+c]["CFBundleIdentifier"] = "com.apple.driver.AppleUSBHostMergeProperties"
+                # ports[m+"-"+c]["CFBundleIdentifier"] = "com.apple.driver.AppleUSBHostMergeProperties"
                 ports[m+"-"+c]["IOClass"] = "AppleUSBHostMergeProperties"
+                ports[m+"-"+c]["IOClass"] = "USBInjectAll"
                 ports[m+"-"+c]["IOProviderMergeProperties"] = {
                     "port-count" : 0,
                     "ports" : {}
@@ -356,7 +380,7 @@ class USBMap:
             "CFBundleVersion" : "1.0",
             "IOKitPersonalities" : ports
         }
-
+        print("Writing to USBMap.kext...")
         # Remove if exists
         if os.path.exists("USBMap.kext"):
             shutil.rmtree("USBMap.kext", ignore_errors=True)
@@ -365,7 +389,191 @@ class USBMap:
         # Add the Info.plist
         with open("USBMap.kext/Contents/Info.plist", "wb") as f:
             plist.dump(final_dict, f)
+        print(" - Created USBMap.kext!")
         self.re.reveal("USBMap.kext")
+        print("")
+        self.u.grab("Press [enter] to return...")
+
+    def check_iasl(self):
+        target = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.scripts, "iasl")
+        if not os.path.exists(target):
+            # Need to download
+            temp = tempfile.mkdtemp()
+            try:
+                self._download_and_extract(temp,self.iasl_url)
+            except:
+                print("An error occurred :(")
+            shutil.rmtree(temp, ignore_errors=True)
+        if os.path.exists(target):
+            return target
+        return None
+
+    def _download_and_extract(self, temp, url):
+        ztemp = tempfile.mkdtemp(dir=temp)
+        zfile = os.path.basename(url)
+        print("Downloading {}...".format(os.path.basename(url)))
+        self.d.stream_to_file(url, os.path.join(ztemp,zfile), False)
+        print(" - Extracting...")
+        btemp = tempfile.mkdtemp(dir=temp)
+        # Extract with built-in tools \o/
+        with zipfile.ZipFile(os.path.join(ztemp,zfile)) as z:
+            z.extractall(os.path.join(temp,btemp))
+        script_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.scripts)
+        for x in os.listdir(os.path.join(temp,btemp)):
+            if "iasl" in x.lower():
+                # Found one
+                print(" - Found {}".format(x))
+                print("   - Chmod +x...")
+                self.r.run({"args":["chmod","+x",os.path.join(btemp,x)]})
+                print("   - Copying to {} directory...".format(os.path.basename(script_dir)))
+                shutil.copy(os.path.join(btemp,x), os.path.join(script_dir,x))
+
+    def compile(self, filename):
+        # Verifies that iasl is present - downloads it if not
+        # then attempts to compile
+        # Returns the resulting aml file on success - or None
+        # on failure
+        if not self.iasl:
+            self.iasl = self.check_iasl()
+        if not self.iasl:
+            # Didn't download
+            return None
+        # Run it!
+        out = self.r.run({"args":[self.iasl, filename]})
+        if out[2] != 0:
+            return None
+        aml_name = filename[:-3]+"aml" if filename.lower().endswith(".dsl") else filename+".aml"
+        if os.path.exists(aml_name):
+            return aml_name
+        return None
+
+    def al(self, totext, addtext, indent = 0, itext = "    "):
+        return totext + (itext*indent) + addtext + "\n"
+
+    def build_ssdt(self):
+        # Builds an SSDT-UIAC.dsl with the supplied info
+        # Structure should be fairly easy - just need to supply info
+        # programmatically with some specifics
+        self.u.resize(80, 24)
+        self.u.head("Creating SSDT-UIAC")
+        print("")
+        print("Loading plist...")
+        with open(self.plist, "rb") as f:
+            p = plist.load(f)
+        print("Generating SSDT-UIAC.dsl...")
+        dsl = """
+// SSDT-UIAC.dsl
+//
+// This SSDT contains all ports selected via USBMap per CorpNewt's script.
+// It is to be used in conjunction wtih USBInjectAll.kext.
+//
+// Note:
+// portType=0 seems to indicate normal external USB2 port (as seen in MacBookPro8,1)
+// portType=2 seems to indicate "internal device" (as seen in MacBookPro8,1)
+// portType=4 is used by MacBookPro8,3 (reason/purpose unknown)
+//
+// Formatting credits: RehabMan - https://github.com/RehabMan/OS-X-USB-Inject-All/blob/master/SSDT-UIAC-ALL.dsl
+//
+
+DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
+{
+    Device(UIAC)
+    {
+        Name(_HID, "UIA00000")
+    
+        Name(RMCF, Package()
+        {
+"""
+        # Initialize and format the data
+        ports = {}
+        excluded = []
+        for u in p:
+            # Gather a list of enabled ports
+            # populates XHC, EH01, EH02, HUB1, and HUB2
+            # Skip if it's skipped
+            if not p[u]["selected"]:
+                excluded.append(u)
+                continue
+            c = p[u]["controller"]
+            if not c in ["XHC","EH01","EH02","HUB1","HUB2"]:
+                # Not valid - skip
+                continue
+            if not c in ports:
+                # Setup a default
+                ports[c] = {
+                    "port-count": p[u]["port"],
+                    "ports": {}
+                }
+            if p[u]["port"] > ports[c]["port-count"]:
+                # Current port is higher numbered - replace
+                ports[c]["port-count"] = p[u]["port"]
+            # Add the port itself
+            ports[c]["ports"][u] = {
+                "UsbConnector": p[u]["type"],
+                "port": p[u]["port"]
+            }
+        # All ports should be mapped correctly - let's walk
+        # the controllers and format accordingly
+        for c in sorted(ports):
+            # Got a controller, let's add it
+            d = c if not c == "XHC" else self.xch_devid
+            # Build the header
+            dsl = self.al(dsl, '"{}", Package()'.format(d), 3)
+            dsl = self.al(dsl, '{', 3)
+            dsl = self.al(dsl, '"port-count", Buffer() { '+str(ports[c]["port-count"])+', 0, 0, 0 },', 4)
+            dsl = self.al(dsl, '"ports", Package()', 4)
+            dsl = self.al(dsl, '{', 4)
+            # Add the ports
+            for p in sorted(ports[c]["ports"]):
+                port = ports[c]["ports"][p]
+                # Port header
+                dsl = self.al(dsl, '"{}", Package()'.format(p), 5)
+                dsl = self.al(dsl, "{", 5)
+                # UsbConnector/portType
+                if c in ["HUB1","HUB2"]:
+                    # Comment out UsbConnector
+                    dsl = self.al(dsl, '//"UsbConnector", {},'.format(port["UsbConnector"]), 6)
+                    # Use portType instead
+                    dsl = self.al(dsl, '"portType", 0,', 6)
+                else:
+                    # UsbConnector
+                    dsl = self.al(dsl, '"UsbConnector", {},'.format(port["UsbConnector"]), 6)
+                # Add the port
+                dsl = self.al(dsl, '"port", Buffer() { '+str(port["port"])+', 0, 0, 0 },', 6)
+                # Close the package
+                dsl = self.al(dsl, "},", 5)
+            # Close the port-count buffer
+            dsl = self.al(dsl, "},", 4)
+            # Close the ports package
+            dsl = self.al(dsl, "},", 3)
+        # Close out the rest of the dsl
+        dsl = self.al(dsl, "})", 2)
+        dsl = self.al(dsl, "}", 1)
+        dsl = self.al(dsl, "}")
+        dsl = self.al(dsl, "//EOF")
+        # Save the output - then try to compile it
+        print("Writitng SSDT-UIAC.dsl...")
+        with open("SSDT-UIAC.dsl", "w") as f:
+            f.write(dsl)
+        print("Compiling SSDT-UIAC.dsl...")
+        # Try to compile
+        out = self.compile("SSDT-UIAC.dsl")
+        if not out:
+            print(" - Created SSDT-UIAC.dsl - but could not compile!")
+            self.re.reveal("SSDT-UIAC.dsl")
+        else:
+            print(" - Created SSDT-UIAC.aml!")
+            self.re.reveal(out)
+        if len(excluded):
+            # Create a text file with the boot arg
+            print("Writing Exclusion-Arg.txt...")
+            arg = "uia_exclude={}".format(",".join(excluded))
+            with open("Exclusion-Arg.txt", "w") as f:
+                f.write(arg)
+            print(" - Created Exclusion-Arg.txt!")
+            
+        print("")
+        self.u.grab("Press [enter] to return...")
 
     def edit_plist(self):
         self.u.head("Edit USB.plist")
@@ -412,6 +620,7 @@ class USBMap:
             self.u.resize(80, h)
             print("M. Main Menu")
             print("K. Build USBMap.kext")
+            print("S. Build SSDT-UIAC.dsl")
             print("T. Show Types")
             print("Q. Quit")
             print("")
@@ -427,8 +636,13 @@ class USBMap:
                 return
             elif menu.lower() == "t":
                 self.print_types()
+                continue
             elif menu.lower() == "k":
                 self.build_kext()
+                return
+            elif menu.lower() == "s":
+                self.build_ssdt()
+                return
             # Check if we need to toggle
             if menu[0].lower() == "t":
                 # We should have a type
