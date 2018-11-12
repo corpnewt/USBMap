@@ -503,17 +503,13 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             if not c in ports:
                 # Setup a default
                 ports[c] = {
-                    "port-count": p[u]["port"],
                     "ports": {}
                 }
-            if p[u]["port"] > ports[c]["port-count"]:
-                # Current port is higher numbered - replace
-                ports[c]["port-count"] = p[u]["port"]
-            # Add the port itself
             top = count
+            ports[c]["port-count"] = top
+            # Add the port itself
             ports[c]["ports"][u] = {
                 "UsbConnector": p[u]["type"],
-                # "port": p[u]["port"]
                 "port": top
             }
         # All ports should be mapped correctly - let's walk
@@ -524,7 +520,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             # Build the header
             dsl = self.al(dsl, '"{}", Package()'.format(d), 3)
             dsl = self.al(dsl, '{', 3)
-            dsl = self.al(dsl, '"port-count", Buffer() { '+str(count)+', 0, 0, 0 },', 4)
+            dsl = self.al(dsl, '"port-count", Buffer() { '+str(ports[c]["port-count"])+', 0, 0, 0 },', 4)
             dsl = self.al(dsl, '"ports", Package()', 4)
             dsl = self.al(dsl, '{', 4)
             # Add the ports
@@ -885,14 +881,13 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             self.r.run({"args":["nvram",'boot-args="{}"'.format(" ".join(args))],"sudo":True,"stream":True})
         elif menu.lower() == "h":
             keep = self.get_kb_ms()
-            if keep == None:
-                return
             # Got something to exclude - let's add the args
             self.u.head("Excluding HSxx Ports")
             print("")
             args = self.get_non_uia_args()
-            args.append("-uia_exclude_sh")
-            args.append("uia_include={}".format(",".join(keep)))
+            args.append("-uia_exclude_hs")
+            if keep:
+                args.append("uia_include={}".format(",".join(keep)))
             print('sudo nvram boot-args="{}"'.format(" ".join(args)))
             self.r.run({"args":["nvram",'boot-args="{}"'.format(" ".join(args))],"sudo":True,"stream":True})
         return
