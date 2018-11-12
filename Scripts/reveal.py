@@ -34,7 +34,6 @@ class Reveal:
                 "-e", "end tell"
             ])
         else:
-            print(self.get_parent(path))
             if path == self.get_parent(path):
                 command.extend([
                     "-e", "set p to \"{}\"".format(path.replace("\"", "\\\"")),
