@@ -337,6 +337,9 @@ class USBMap:
             # Skip if it's skipped
             if not p[u]["selected"]:
                 continue
+            # Skip if HS15 - phantom port
+            if u == "HS15":
+                continue
             # Figure out which controller each port is on
             # and map them in
             c = p[u]["controller"]
@@ -487,6 +490,10 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             # populates XHC, EH01, EH02, HUB1, and HUB2
             # Skip if it's skipped
             if not p[u]["selected"]:
+                excluded.append(u)
+                continue
+            # Skip if HS15 - phantom port
+            if u == "HS15":
                 excluded.append(u)
                 continue
             c = p[u]["controller"]
