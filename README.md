@@ -1,2 +1,2 @@
 # USBMap
-Py script for mapping out USB ports and creating a custom injector kext (WIP).
+Py script for mapping out USB ports and creating a custom SSDT or injector kext (WIP).
