@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 import os, sys, re, pprint, binascii, plistlib, shutil, tempfile, zipfile
 from Scripts import *
 
