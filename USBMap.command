@@ -246,12 +246,16 @@ class USBMap:
             pad    = 8
             for port in self.sort(new):
                 count += 1
+                # Extract missing items
+                missing_items = [x for x in new[port]["items"] if not x in original[port]["items"]]
                 if new[port]["selected"] and not original[port]["selected"]:
                     original[port]["selected"] = True
-                    original[port]["items"] = new[port]["items"]
+                    # original[port]["items"] = new[port]["items"]
                 if len(new[port]["items"]) > len(last[port]["items"]):
                     # New item in this run
                     last_added = port
+                # Merge missing items if need be
+                original[port]["items"].extend(missing_items)
                 # Print out the port
                 s = original[port]["selected"]
                 p = original[port]["port"]
