@@ -644,9 +644,9 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 n = u
                 t = p[u]["type"]
                 c = p[u]["controller"]
-                sel[c]["total"] += 1
                 if c in ["EH01-internal-hub","EH02-internal-hub"]:
                     c = "HUB"+c[3]
+                sel[c]["total"] += 1
                 ptext = "[{}] {}. {} - Type {} - Controller {}".format("#" if s else " ", count, n, t, c)
                 if s:
                     sel[c]["selected"] += 1
