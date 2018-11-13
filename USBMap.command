@@ -261,7 +261,10 @@ class USBMap:
                 p = original[port]["port"]
                 n = port
                 t = original[port]["type"]
-                ptext = "{}. {} - Port {} - Type {}".format(count, n, hex(p), t)
+                c = original[port]["controller"]
+                if c in ["EH01-internal-hub","EH02-internal-hub"]:
+                    c = "HUB"+c[3]
+                ptext = "{}. {} - Port {} - Type {} - Controller {}".format(count, n, hex(p), t, c)
                 if port == last_added:
                     ptext = self.cs + ptext + self.ce
                 elif s:
@@ -610,7 +613,29 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             count  = 0
             pad    = 19
             extras = 0
-            sel    = 0
+            #sel    = 0
+            sel    = {
+                "EH01":{
+                    "total":0,
+                    "selected":0
+                },
+                "EH02":{
+                    "total":0,
+                    "selected":0
+                },
+                "HUB1":{
+                    "total":0,
+                    "selected":0
+                },
+                "HUB2":{
+                    "total":0,
+                    "selected":0
+                },
+                "XHC":{
+                    "total":0,
+                    "selected":0
+                }
+            }
             for u in self.sort(p):
                 count += 1
                 # Print out the port
@@ -618,19 +643,29 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 r = p[u]["port"]
                 n = u
                 t = p[u]["type"]
-                ptext = "[{}] {}. {} - Type {}".format("#" if s else " ", count, n, t)
+                c = p[u]["controller"]
+                sel[c]["total"] += 1
+                if c in ["EH01-internal-hub","EH02-internal-hub"]:
+                    c = "HUB"+c[3]
+                ptext = "[{}] {}. {} - Type {} - Controller {}".format("#" if s else " ", count, n, t, c)
                 if s:
-                    sel += 1
+                    sel[c]["selected"] += 1
+                    #sel += 1
                     ptext = self.bs + ptext + self.ce
                 print(ptext)
                 if len(p[u]["items"]):
                     extras += len(p[u]["items"])
                     print("\n".join(["     - {}".format(x) for x in p[u]["items"]]))
             print("")
-            if sel < 1 or sel > 15:
-                ptext = "{}Selected: {}{}".format(self.rs, sel, self.ce)
-            else:
-                ptext = "{}Selected: {}{}".format(self.cs, sel, self.ce)
+            seltext = []
+            for x in sel:
+                if not sel[x]["total"]:
+                    continue
+                if sel[x]["selected"] < 1 or sel[x]["selected"] > 15:
+                    seltext.append("{}{}:{}{}".format(self.rs, x, sel[x]["selected"], self.ce))
+                else:
+                    seltext.append("{}{}:{}{}".format(self.cs, x, sel[x]["selected"], self.ce))
+            ptext = "Selected:  {}".format(", ".join(seltext))
             print(ptext)
             h = count+extras+pad if count+extras+pad > 24 else 24
             self.u.resize(80, h)
