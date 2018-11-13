@@ -894,6 +894,9 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             self.r.run({"args":["nvram",'boot-args="{}"'.format(" ".join(args))],"sudo":True,"stream":True})
         elif menu.lower() == "h":
             keep = self.get_kb_ms()
+            if keep == None:
+                # Skip if we cancelled
+                return
             # Got something to exclude - let's add the args
             self.u.head("Excluding HSxx Ports")
             print("")
