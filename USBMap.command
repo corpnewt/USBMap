@@ -300,7 +300,7 @@ class USBMap:
                 print(ptext)
                 if len(new[port]["items"]):
                     extras += len(new[port]["items"])
-                    print("\n".join(["     - {}".format(x) for x in new[port]["items"]]))
+                    print("\n".join(["     - {}".format(x.encode("utf-8")) for x in new[port]["items"]]))
             seltext = []
             print("")
             for x in sel:
@@ -695,7 +695,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 print(ptext)
                 if len(p[u]["items"]):
                     extras += len(p[u]["items"])
-                    print("\n".join(["     - {}".format(x) for x in p[u]["items"]]))
+                    print("\n".join(["     - {}".format(x.encode("utf-8")) for x in p[u]["items"]]))
             print("")
             seltext = []
             for x in sel:
@@ -807,7 +807,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 print(ptext)
                 if len(p[u]["items"]):
                     extras += len(p[u]["items"])
-                    print("\n".join(["     - {}".format(x) for x in p[u]["items"]]))
+                    print("\n".join(["     - {}".format(x.encode("utf-8")) for x in p[u]["items"]]))
             print("")
             if sel < 1 or sel > 2:
                 ptext = "{}Selected: {}{}".format(self.rs, sel, self.ce)
