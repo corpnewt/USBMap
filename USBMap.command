@@ -14,6 +14,10 @@ class USBMap:
         self.usb_re = re.compile("(SS|SSP|HS|HP|PR|USR)[a-fA-F0-9]{1,2}@[a-fA-F0-9]{1,}")
         self.usb_dict = {}
         self.xch_devid = self.get_xhc_devid()
+        self.min_uia_v = "0.7.0"
+        self.bdmesg = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.scripts, "bdmesg")
+        if not os.path.exists(self.bdmesg):
+            self.bdmesg = None
         self.plist = "usb.plist"
         self.disc_wait = 5
         self.cs = u"\u001b[32;1m"
@@ -285,6 +289,7 @@ class USBMap:
         return original
 
     def print_types(self):
+        self.u.resize(80, 24)
         self.u.head("USB Types")
         print("")
         types = "\n".join([
@@ -684,6 +689,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             if not len(menu):
                 continue
             if menu.lower() == "q":
+                self.u.resize(80, 24)
                 self.u.custom_quit()
             elif menu.lower() == "m":
                 return
@@ -845,6 +851,20 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         newlist.extend(sorted(rest))
         return newlist
 
+    def check_uia(self):
+        # Checks for the presence of USBInjectAll and gets the version number
+        # will also make sure it's new enough to use the exclude all args
+        out = self.r.run({"args":["kextstat"]})[0]
+        for line in out.split("\n"):
+            if "usbinjectall" in line.lower():
+                # Found it!
+                try:
+                    v = line.split("(")[1].split(")")[0]
+                except:
+                    return None
+                return v
+        return None
+
     def main(self):
         self.u.resize(80, 24)
         self.u.head("USBMap")
@@ -861,11 +881,34 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         else:
             print("UIA Boot Args: None")
         print("")
+        uia_version = self.check_uia()
+        uia_text = "USBInjectAll "
+        if not uia_version:
+            # Not loaded
+            uia_text += "Not Loaded - NVRAM boot-args WILL NOT WORK"
+        else:
+            # Loaded - check if v is enough
+            v = self.u.compare_versions(uia_version, self.min_uia_v)
+            if v:
+                # Under minimum version
+                uia_text += "v{} Loaded - HSxx/SSxx Exclude WILL NOT WORK (0.7.0 min)".format(uia_version)
+            else:
+                # Equal to, or higher than the min version
+                uia_text += "v{} Loaded".format(uia_version)
+        print(uia_text)
+        print("")
+        aptio_loaded = "Unknown"
+        if self.bdmesg:
+            aptio = self.r.run({"args":"{} | grep -i aptiomemoryfix".format(self.bdmesg),"shell":True})[0].strip("\n")
+            aptio_loaded = "Loaded" if "success" in aptio.lower() else "Not Loaded"
+        print("AptioMemoryFix {}{}".format(aptio_loaded, "" if aptio_loaded is "Loaded" else " - NVRAM boot-args MAY NOT WORK."))
+        print("")
+        print("NVRAM Arg Options:")
         if os.path.exists("Exclusion-Arg.txt"):
-            print("E. Apply Exclusion-Arg.txt")
-        print("H. Exclude HSxx Ports")
-        print("S. Exclude SSxx Ports")
-        print("C. Clear Exclusions")
+            print("  E. Apply Exclusion-Arg.txt")
+        print("  H. Exclude HSxx Ports")
+        print("  S. Exclude SSxx Ports")
+        print("  C. Clear Exclusions")
         print("")
         print("R. Remove Plist")
         print("P. Edit Plist & Create SSDT/Kext")
