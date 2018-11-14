@@ -247,7 +247,29 @@ class USBMap:
             new = self.get_by_port()
             count  = 0
             extras = 0
-            pad    = 8
+            pad    = 10
+            sel    = {
+                "EH01":{
+                    "total":0,
+                    "selected":0
+                },
+                "EH02":{
+                    "total":0,
+                    "selected":0
+                },
+                "HUB1":{
+                    "total":0,
+                    "selected":0
+                },
+                "HUB2":{
+                    "total":0,
+                    "selected":0
+                },
+                "XHC":{
+                    "total":0,
+                    "selected":0
+                }
+            }
             for port in self.sort(new):
                 count += 1
                 # Extract missing items
@@ -268,15 +290,28 @@ class USBMap:
                 c = original[port]["controller"]
                 if c in ["EH01-internal-hub","EH02-internal-hub"]:
                     c = "HUB"+c[3]
+                sel[c]["total"] += 1
                 ptext = "{}. {} - Port {} - Type {} - Controller {}".format(count, n, hex(p), t, c)
                 if port == last_added:
                     ptext = self.cs + ptext + self.ce
                 elif s:
+                    sel[c]["selected"] += 1
                     ptext = self.bs + ptext + self.ce
                 print(ptext)
                 if len(new[port]["items"]):
                     extras += len(new[port]["items"])
                     print("\n".join(["     - {}".format(x) for x in new[port]["items"]]))
+            seltext = []
+            print("")
+            for x in sel:
+                if not sel[x]["total"]:
+                    continue
+                if sel[x]["selected"] < 1 or sel[x]["selected"] > 15:
+                    seltext.append("{}{}:{}{}".format(self.rs, x, sel[x]["selected"], self.ce))
+                else:
+                    seltext.append("{}{}:{}{}".format(self.cs, x, sel[x]["selected"], self.ce))
+            ptext = "Populated:  {}".format(", ".join(seltext))
+            print(ptext)
             h = count+extras+pad if count+extras+pad > 24 else 24
             self.u.resize(80, h)
             print("Press Q and [enter] to stop...")
