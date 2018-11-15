@@ -544,7 +544,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 excluded.append(u)
                 continue
             c = p[u]["controller"]
-            if not c in ["XHC","EH01","EH02","HUB1","HUB2"]:
+            if not c in ["XHC","EH01","EH02","EH01-internal-hub","EH02-internal-hub"]:
                 # Not valid - skip
                 continue
             if not c in ports:
@@ -564,6 +564,9 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         for c in self.sort(ports):
             # Got a controller, let's add it
             d = c if not c == "XHC" else self.xch_devid
+            # Set controller to HUB1/2 if needed
+            if d in ["EH01-internal-hub","EH02-internal-hub"]:
+                d = "HUB"+c[3]
             # Build the header
             dsl = self.al(dsl, '"{}", Package()'.format(d), 3)
             dsl = self.al(dsl, '{', 3)
