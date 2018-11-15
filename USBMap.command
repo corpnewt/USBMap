@@ -377,10 +377,31 @@ class USBMap:
         m = self.get_model()
         # Separate by types and build the proper setups
         ports = {}
-        count = 0
-        top = 0
+        # Count up per channel
+        sel = {
+                "EH01":{
+                    "top":0
+                },
+                "EH02":{
+                    "top":0
+                },
+                "EH01-internal-hub":{
+                    "top":0
+                },
+                "EH02-internal-hub":{
+                    "top":0
+                },
+                "XHC":{
+                    "top":0
+                }
+            }
         for u in self.sort(p):
-            count += 1
+            c = p[u]["controller"]
+            if not c in ["XHC","EH01","EH02","EH01-internal-hub","EH02-internal-hub"]:
+                # Not valid - skip
+                continue
+            # Count up
+            sel[c]["top"] += 1
             # Skip if it's skipped
             if not p[u]["selected"]:
                 continue
@@ -389,7 +410,6 @@ class USBMap:
                 continue
             # Figure out which controller each port is on
             # and map them in
-            c = p[u]["controller"]
             if not m+"-"+c in ports:
                 ports[m+"-"+c] = {}
                 for x in self.usb_plist.get(c, []):
@@ -397,17 +417,16 @@ class USBMap:
                     ports[m+"-"+c][x] = self.usb_plist[c][x]
                 # Add the necessary info for all of them
                 ports[m+"-"+c]["IOClass"] = "AppleUSBHostMergeProperties"
-                ports[m+"-"+c]["IOClass"] = "USBInjectAll"
+                # ports[m+"-"+c]["IOClass"] = "USBInjectAll"
                 ports[m+"-"+c]["IOProviderMergeProperties"] = {
                     "port-count" : 0,
                     "ports" : {}
                 }
-            top = count
             ports[m+"-"+c]["IOProviderMergeProperties"]["ports"][u] = {
                 "UsbConnector" : p[u]["type"],
-                "port" : self.hex_to_data(top)
+                "port" : self.hex_to_data(sel[c]["top"])
             }
-            ports[m+"-"+c]["IOProviderMergeProperties"]["port-count"] = self.hex_to_data(top)
+            ports[m+"-"+c]["IOProviderMergeProperties"]["port-count"] = self.hex_to_data(sel[c]["top"])
 
         # Let's add our initial vars too
         final_dict = {
