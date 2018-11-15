@@ -580,7 +580,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 dsl = self.al(dsl, '"{}", Package()'.format(p), 5)
                 dsl = self.al(dsl, "{", 5)
                 # UsbConnector/portType
-                if c in ["HUB1","HUB2"]:
+                if d in ["HUB1","HUB2"]:
                     # Comment out UsbConnector
                     dsl = self.al(dsl, '//"UsbConnector", {},'.format(port["UsbConnector"]), 6)
                     # Use portType instead
