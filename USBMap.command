@@ -553,6 +553,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     "ports": {}
                 }
             top = count
+            if u.startswith("HP"):
+                nameint = int(u.replace("HP",""))
+                if nameint < 20:
+                    # 11-18 is EH01 Hub 1
+                    top = nameint-10
+                else:
+                    # 21-28 is EH02 Hub 2
+                    top = nameint-20
             ports[c]["port-count"] = top
             # Add the port itself
             ports[c]["ports"][u] = {
@@ -874,6 +882,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         usrlist = []
         sslist  = []
         rest    = []
+        hplist  = []
         for x in usblist:
             if x.startswith("HS"):
                 hslist.append(x)
@@ -881,12 +890,15 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 sslist.append(x)
             elif x.startswith("USR"):
                 usrlist.append(x)
+            elif x.startswith("HP"):
+                hplist.append(x)
             else:
                 rest.append(x)
         newlist.extend(sorted(hslist))
         newlist.extend(sorted(usrlist))
         newlist.extend(sorted(sslist))
         newlist.extend(sorted(rest))
+        newlist.extend(sorted(hplist))
         return newlist
 
     def check_uia(self):
