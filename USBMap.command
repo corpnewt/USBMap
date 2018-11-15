@@ -529,10 +529,31 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # Initialize and format the data
         ports = {}
         excluded = []
-        count = 0
-        top = 0
+        # Count up per channel
+        sel = {
+                "EH01":{
+                    "top":0
+                },
+                "EH02":{
+                    "top":0
+                },
+                "EH01-internal-hub":{
+                    "top":0
+                },
+                "EH02-internal-hub":{
+                    "top":0
+                },
+                "XHC":{
+                    "top":0
+                }
+            }
         for u in self.sort(p):
-            count += 1
+            c = p[u]["controller"]
+            if not c in ["XHC","EH01","EH02","EH01-internal-hub","EH02-internal-hub"]:
+                # Not valid - skip
+                continue
+            # Count up
+            sel[c]["top"] += 1
             # Gather a list of enabled ports
             # populates XHC, EH01, EH02, HUB1, and HUB2
             # Skip if it's skipped
@@ -543,29 +564,24 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             if u == "HS15":
                 excluded.append(u)
                 continue
-            c = p[u]["controller"]
-            if not c in ["XHC","EH01","EH02","EH01-internal-hub","EH02-internal-hub"]:
-                # Not valid - skip
-                continue
             if not c in ports:
                 # Setup a default
                 ports[c] = {
                     "ports": {}
                 }
-            top = count
-            if u.startswith("HP"):
+            '''if u.startswith("HP"):
                 nameint = int(u.replace("HP",""))
                 if nameint < 20:
                     # 11-18 is EH01 Hub 1
                     top = nameint-10
                 else:
                     # 21-28 is EH02 Hub 2
-                    top = nameint-20
-            ports[c]["port-count"] = top
+                    top = nameint-20'''
+            ports[c]["port-count"] = sel[c]["top"]
             # Add the port itself
             ports[c]["ports"][u] = {
                 "UsbConnector": p[u]["type"],
-                "port": top
+                "port": sel[c]["top"]
             }
         # All ports should be mapped correctly - let's walk
         # the controllers and format accordingly
