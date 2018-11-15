@@ -30,18 +30,21 @@ class USBMap:
             "XHC": {
                 "IONameMatch" : "XHC",
                 "IOProviderClass" : "AppleUSBXHCIPCI",
-                "kConfigurationName" : "XHC",
-                "kIsXHC" : True
+                "CFBundleIdentifier" : "com.apple.driver.AppleUSBHostMergeProperties"
+                # "kConfigurationName" : "XHC",
+                # "kIsXHC" : True
             }, 
             "EH01": {
                 "IONameMatch" : "EH01",
                 "IOProviderClass" : "AppleUSBEHCIPCI",
-                "kConfigurationName" : "EH01"
+                "CFBundleIdentifier" : "com.apple.driver.AppleUSBHostMergeProperties"
+                # "kConfigurationName" : "EH01"
             },
             "EH02": {
                 "IONameMatch" : "EH02",
                 "IOProviderClass" : "AppleUSBEHCIPCI",
-                "kConfigurationName" : "EH02"
+                "CFBundleIdentifier" : "com.apple.driver.AppleUSBHostMergeProperties"
+                # "kConfigurationName" : "EH02"
             },
             "EH01-internal-hub": {
                 "IOProbeScore" : 5000,
@@ -400,6 +403,9 @@ class USBMap:
             if not c in ["XHC","EH01","EH02","EH01-internal-hub","EH02-internal-hub"]:
                 # Not valid - skip
                 continue
+            # Map the HUBs into the EH01/02 chipsets for the kext
+            if len(c) > 4:
+                c = c[:4]
             # Count up
             sel[c]["top"] += 1
             # Skip if it's skipped
@@ -439,7 +445,8 @@ class USBMap:
             "CFBundleShortVersionString" : "1.0",
             "CFBundleSignature" : "????",
             "CFBundleVersion" : "1.0",
-            "IOKitPersonalities" : ports
+            "IOKitPersonalities" : ports,
+            "OSBundleRequired" : "Root"
         }
         print("Writing to USBMap.kext...")
         # Remove if exists
