@@ -403,11 +403,11 @@ class USBMap:
             if not c in ["XHC","EH01","EH02","EH01-internal-hub","EH02-internal-hub"]:
                 # Not valid - skip
                 continue
+            # Count up
+            sel[c]["top"] += 1
             # Map the HUBs into the EH01/02 chipsets for the kext
             if len(c) > 4:
                 c = c[:4]
-            # Count up
-            sel[c]["top"] += 1
             # Skip if it's skipped
             if not p[u]["selected"]:
                 continue
@@ -423,16 +423,18 @@ class USBMap:
                     ports[m+"-"+c][x] = self.usb_plist[c][x]
                 # Add the necessary info for all of them
                 ports[m+"-"+c]["IOClass"] = "AppleUSBHostMergeProperties"
+                ports[m+"-"+c]["model"] = m
                 # ports[m+"-"+c]["IOClass"] = "USBInjectAll"
                 ports[m+"-"+c]["IOProviderMergeProperties"] = {
                     "port-count" : 0,
-                    "ports" : {}
+                    "ports" : {},
                 }
+            t_var = "portType" if len(p[u]["controller"]) > 4 else "UsbConnector"
             ports[m+"-"+c]["IOProviderMergeProperties"]["ports"][u] = {
-                "UsbConnector" : p[u]["type"],
-                "port" : self.hex_to_data(sel[c]["top"])
+                "port" : self.hex_to_data(sel[p[u]["controller"]]["top"]),
+                t_var : p[u]["type"]
             }
-            ports[m+"-"+c]["IOProviderMergeProperties"]["port-count"] = self.hex_to_data(sel[c]["top"])
+            ports[m+"-"+c]["IOProviderMergeProperties"]["port-count"] = self.hex_to_data(sel[p[u]["controller"]]["top"])
 
         # Let's add our initial vars too
         final_dict = {
