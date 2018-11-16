@@ -982,7 +982,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         print("Locating EC in IOReg...")
         ssdt_name = "SSDT"
         dsl = """
-// SSDT-USBX.dsl
+// SSDT-EC-USBX.dsl
 //
 // This SSDT contains the EC and USBX (if needed) devices created by CorpNewt's
 // USBMap script for USB Charging to work on 10.12+.
@@ -990,20 +990,20 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
 // Credits for the logic behind this:
 // RehabMan - https://www.tonymacx86.com/threads/guide-usb-power-property-injection-for-sierra-and-later.222266/
 //
+
+DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
+{
 """
         # Add the EC device if we don't have one
         if not self.has_ec():
             ssdt_name += "-EC"
             print(" - EC not found, adding to SSDT...")
             dsl += """
-// Inject Fake EC device
-DefinitionBlock("", "SSDT", 2, "hack", "EC", 0)
-{
+    // Inject Fake EC device
     Device(_SB.EC)
     {
         Name(_HID, "EC000000")
     }
-}
 """
         else:
             print(" - EC found!  Omitting from SSDT...")
@@ -1100,8 +1100,6 @@ DefinitionBlock("", "SSDT", 2, "hack", "EC", 0)
                 # Add the header!
                 dsl += """
 // USB power properties via USBX device
-DefinitionBlock("", "SSDT", 2, "hack", "USBX", 0)
-{
     Device(_SB.USBX)
     {
         Name(_ADR, 0)
@@ -1120,7 +1118,6 @@ DefinitionBlock("", "SSDT", 2, "hack", "USBX", 0)
             })
         }
     }
-}
 """
         if ssdt_name == "SSDT":
             print("No changes were made, this SSDT is not needed.")
@@ -1128,7 +1125,7 @@ DefinitionBlock("", "SSDT", 2, "hack", "USBX", 0)
             self.u.grab("Press [enter] to return...")
             return
         # Make sure we have an //EOF comment
-        dsl += "//EOF"
+        dsl += "}\n//EOF"
         # Save the output - then try to compile it
         print("Writitng {}.dsl...".format(ssdt_name))
         with open("{}.dsl".format(ssdt_name), "w") as f:
