@@ -972,7 +972,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # 0 = create EC SSDT
         # 1 = rename EC0 to EC
         # 2 = rename H_EC to EC
-        # 3 = No SSDT or user interaction required - already working
+        # 3 = rename ECDV to EC
+        # 4 = No SSDT or user interaction required - already working
 
         # Check for AppleBusPowerController first - that means our current
         # EC is correct
@@ -980,7 +981,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         for line in abpc:
             if "IOClass" in line and "AppleBusPowerController" in line:
                 # Found it!
-                return 3
+                return 4
         
         # At this point - we know AppleBusPowerController isn't loaded - let's look at renames and such
         # Check for ECDT in ACPI - if this is present, all bets are off
@@ -1008,11 +1009,13 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         rename = 0
         for line in pnp:
             # We're looking for "EC " in the line - and that the name is <"PNP0C09"> - then we'll check the _STA value
-            if "EC " in line or "EC0 " in line or "H_EC " in line:
+            if "EC " in line or "EC0 " in line or "H_EC " in line or "ECDV " in line:
                 if "H_EC " in line:
                     rename = 2
                 elif "EC0 " in line:
                     rename = 1
+                elif "ECDV " in line:
+                    rename = 3
                 # should be the right device
                 primed = True
                 continue
@@ -1205,15 +1208,19 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
 """
 
         # Check if we need renames in config.plist
-        if check_ec in [1,2]:
-            name = "H_EC"
-            fhex = "485f4543"
-            fb64 = "SF9FQw=="
+        if check_ec in [1,2,3]:
             if check_ec == 1:
                 name = "EC0"
                 fhex = "4543305f"
                 fb64 = "RUMwXw=="
-        if check_ec == 1:
+            elif check_ec == 2:
+                name = "H_EC"
+                fhex = "485f4543"
+                fb64 = "SF9FQw=="
+            elif check_ec == 3:
+                name = "ECDV"
+                fhex = "45434456"
+                fb64 = "RUNEVg=="
             # Rename EC0 -> EC
             print("")
             print("The following is required for EC in config.plist -> ACPI -> Patches:")
