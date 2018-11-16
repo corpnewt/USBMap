@@ -961,12 +961,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
 
     def check_ec(self):
         # Let's look for a couple of things
-        # 1. We want to see if we have ECDT in ACPI and if so
-        # 2. We check for EC, EC0, or H_EC in ioreg - and if found, we check
-        #    if the _STA is 0 or not.
-        # 2a. We also want to check if the dev name is wrong and report that
-        # 3. We check for the existence of AppleBusPowerController in ioreg -> IOService
-        
+        # 1. We check for the existence of AppleBusPowerController in ioreg -> IOService
+        #    If it exists, then we don't need any SSDT or renames
+        # 2. We want to see if we have ECDT in ACPI and if so, we force a fake EC SSDT
+        #    as renames and such can interfere
+        # 3. We check for EC, EC0, H_EC, or ECDV in ioreg - and if found, we check
+        #    if the _STA is 0 or not - if it's not 0, and not EC, we prompt for a rename
+        #    We match that against the PNP0C09 name in ioreg
+        #
         # Output values are:
         #
         # 0 = create EC SSDT
@@ -1051,6 +1053,10 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 return 0
             # We found pnp - but we need to rename it seems
             return rename
+        
+        # If we got here, then we didn't find EC, and didn't need to rename it
+        # so we return 0 to prompt for an EC fake SSDT to be made
+        return 0
 
     def power_ssdt(self):
         # Puts together an EC device in the SSDT
