@@ -959,13 +959,95 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 return v
         return None
 
-    def check_buspower(self):
-        out = self.r.run({"args":["kextstat"]})[0]
-        for line in out.split("\n"):
-            if "applebuspowercontroller" in line.lower():
+    def check_ec(self):
+        # Let's look for a couple of things
+        # 1. We want to see if we have ECDT in ACPI and if so
+        # 2. We check for EC, EC0, or H_EC in ioreg - and if found, we check
+        #    if the _STA is 0 or not.
+        # 2a. We also want to check if the dev name is wrong and report that
+        # 3. We check for the existence of AppleBusPowerController in ioreg -> IOService
+        
+        # Output values are:
+        #
+        # 0 = create EC SSDT
+        # 1 = rename EC0 to EC
+        # 2 = rename H_EC to EC
+        # 3 = No SSDT or user interaction required - already working
+
+        # Check for AppleBusPowerController first - that means our current
+        # EC is correct
+        abpc = self.r.run({"args":["ioreg", "-l", "-p", "IOService", "-w0"]})[0].split("\n")
+        for line in abpc:
+            if "IOClass" in line and "AppleBusPowerController" in line:
                 # Found it!
-                return True
-        return False
+                return 3
+        
+        # At this point - we know AppleBusPowerController isn't loaded - let's look at renames and such
+        # Check for ECDT in ACPI - if this is present, all bets are off
+        # and we need to avoid any EC renames and such
+        if self.bdmesg:
+            b = self.r.run({"args":[self.bdmesg]})[0]
+            primed = False
+            for line in b.split("\n"):
+                if "GetAcpiTablesList" in line:
+                    primed = True
+                    continue
+                if "GetUserSettings" in line:
+                    primed = False
+                    break
+                if primed:
+                    if "ECDT" in line:
+                        # We found ECDT - baaaaiiiillllll
+                        return 0
+
+        # No ECDT in bdmesg - or bdmesg isn't around, let's check for EC0 or H_EC
+        pnp = self.r.run({"args":["ioreg", "-l", "-p", "IODeviceTree", "-w0"]})[0].split("\n")
+        primed = False
+        sta = 0
+        waspnp = False
+        rename = 0
+        for line in pnp:
+            # We're looking for "EC " in the line - and that the name is <"PNP0C09"> - then we'll check the _STA value
+            if "EC " in line or "EC0 " in line or "H_EC " in line:
+                if "H_EC " in line:
+                    rename = 2
+                elif "EC0 " in line:
+                    rename = 1
+                # should be the right device
+                primed = True
+                continue
+            # Let's skip everything else unless we're primed
+            if not primed:
+                # Everything after here 
+                continue
+            # Check if we hit a closing bracket
+            if line.replace(" ","").replace("|","") == "}":
+                # if we close, and somehow set our _STA, we need to unset
+                # if it was the wrong device
+                if waspnp:
+                    break
+                sta = 0
+                primed = False
+                continue
+            # At this point, we check if we're primed, and look for <"PNP0C09">
+            if '<"PNP0C09">' in line:
+                # We got the right device at least - flag it
+                waspnp = True
+                continue
+            if '"_STA"' in line:
+                # Got the _STA value - set it
+                try:
+                    sta = int(line.split(" = ")[1])
+                except:
+                    # Not an int, reset
+                    sta = 0
+        if waspnp:
+            # We found our device - let's check the values
+            if sta == 0:
+                # No need to rename, avoid it - add a fake
+                return 0
+            # We found pnp - but we need to rename it seems
+            return rename
 
     def power_ssdt(self):
         # Puts together an EC device in the SSDT
@@ -979,7 +1061,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         self.u.resize(80, 24)
         self.u.head("Generating SSDT For EC/USBX")
         print("")
-        print("Locating EC in IOReg...")
+        print("Checking EC requirements...")
         ssdt_name = "SSDT"
         dsl = """
 // SSDT-EC-USBX.dsl
@@ -995,9 +1077,11 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
 {
 """
         # Add the EC device if we don't have one
-        if not self.check_buspower():
+        check_ec = self.check_ec()
+        if check_ec == 0:
+            # We failed some check, need to make the SSDT
             ssdt_name += "-EC"
-            print(" - AppleBusPowerController not loaded, adding EC to SSDT...")
+            print(" - EC SSDT required...")
             dsl += """
     // Inject Fake EC device
     Device(_SB.EC)
@@ -1006,7 +1090,7 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
     }
 """
         else:
-            print(" - AppleBusPowerController loaded!  Omitting EC from SSDT...")
+            print(" - EC SSDT not required - Omitting...")
         print("Opening IOUSBHostFamily Info.plist...")
         # Now we check if our model is in the IOUSBHostFamily Info.plist
         m = self.get_model()
@@ -1086,8 +1170,8 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
                 self.u.head("Generating SSDT For EC/USBX")
                 print("")
                 # Fill in missing log values...
-                print("Locating EC in IOReg...")
-                ec = " - AppleBusPowerController not loaded, adding EC to SSDT..." if "EC" in ssdt_name else " - AppleBusPowerController loaded!  Omitting EC from SSDT..."
+                print("Checking EC requirements...")
+                ec = " - EC SSDT required..." if check_ec == 0 else " - EC SSDT not required - Omitting..."
                 print(ec)
                 print("Opening IOUSBHostFamily Info.plist...")
                 print(" - Checking for {} in Info.plist...".format(m))
@@ -1119,6 +1203,29 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
         }
     }
 """
+
+        # Check if we need renames in config.plist
+        if check_ec in [1,2]:
+            name = "H_EC"
+            fhex = "485f4543"
+            fb64 = "SF9FQw=="
+            if check_ec == 1:
+                name = "EC0"
+                fhex = "4543305f"
+                fb64 = "RUMwXw=="
+        if check_ec == 1:
+            # Rename EC0 -> EC
+            print("")
+            print("The following is required for EC in config.plist -> ACPI -> Patches:")
+            print("")
+            print("Comment:  Rename {} to EC".format(name))
+            print("Hex:")
+            print(" - Find:  {}".format(fhex))
+            print(" - Repl:  45435f5f")
+            print("Base64:")
+            print(" - Find:  {}".format(fb64))
+            print(" - Repl:  RUNfXw==")
+            print("")
         if ssdt_name == "SSDT":
             print("No changes were made, this SSDT is not needed.")
             print("")
