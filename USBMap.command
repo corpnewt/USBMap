@@ -959,11 +959,11 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 return v
         return None
 
-    def has_ec(self):
-        ioreg_text = self.r.run({"args":["ioreg","-l","-w0","-p","IODeviceTree"]})[0]
-        for line in ioreg_text.split("\n"):
-            if "AppleACPIEC" in line and not "IOKitDiagnostics" in line:
-                # we have a match!
+    def check_buspower(self):
+        out = self.r.run({"args":["kextstat"]})[0]
+        for line in out.split("\n"):
+            if "applebuspowercontroller" in line.lower():
+                # Found it!
                 return True
         return False
 
@@ -995,9 +995,9 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
 {
 """
         # Add the EC device if we don't have one
-        if not self.has_ec():
+        if not self.check_buspower():
             ssdt_name += "-EC"
-            print(" - EC not found, adding to SSDT...")
+            print(" - AppleBusPowerController not loaded, adding EC to SSDT...")
             dsl += """
     // Inject Fake EC device
     Device(_SB.EC)
@@ -1006,7 +1006,7 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
     }
 """
         else:
-            print(" - EC found!  Omitting from SSDT...")
+            print(" - AppleBusPowerController loaded!  Omitting EC from SSDT...")
         print("Opening IOUSBHostFamily Info.plist...")
         # Now we check if our model is in the IOUSBHostFamily Info.plist
         m = self.get_model()
@@ -1087,7 +1087,7 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
                 print("")
                 # Fill in missing log values...
                 print("Locating EC in IOReg...")
-                ec = " - EC not found, adding to SSDT..." if "EC" in ssdt_name else " - EC found!  Omitting from SSDT..."
+                ec = " - AppleBusPowerController not loaded, adding EC to SSDT..." if "EC" in ssdt_name else " - AppleBusPowerController loaded!  Omitting EC from SSDT..."
                 print(ec)
                 print("Opening IOUSBHostFamily Info.plist...")
                 print(" - Checking for {} in Info.plist...".format(m))
