@@ -959,8 +959,194 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 return v
         return None
 
-    def main(self):
+    def has_ec(self):
+        ioreg_text = self.r.run({"args":["ioreg","-l","-w0","-p","IODeviceTree"]})[0]
+        for line in ioreg_text.split("\n"):
+            if "AppleACPIEC" in line and not "IOKitDiagnostics" in line:
+                # we have a match!
+                return True
+        return False
+
+    def power_ssdt(self):
+        # Puts together an EC device in the SSDT
+        # then checks if the current SMBIOS is in IOUSBHostFamily.kext/Contents/Info.plist
+        # and if not - picks the newest model from there within the same family
+        # and applies that device's values to the SSDT as well
+        #
+        # First we check for the AppleACPIEC device - this should match in **2** places if it exists
+        # First is IOKitDiagnostics, second is the actual AppleACPIEC device.  The former will match
+        # even if we don't have a valid EC device - so we ignore that.
         self.u.resize(80, 24)
+        self.u.head("Generating SSDT For EC/USBX")
+        print("")
+        print("Locating EC in IOReg...")
+        ssdt_name = "SSDT"
+        dsl = """
+// SSDT-USBX.dsl
+//
+// This SSDT contains the EC and USBX (if needed) devices created by CorpNewt's
+// USBMap script for USB Charging to work on 10.12+.
+//
+// Credits for the logic behind this:
+// RehabMan - https://www.tonymacx86.com/threads/guide-usb-power-property-injection-for-sierra-and-later.222266/
+//
+"""
+        # Add the EC device if we don't have one
+        if not self.has_ec():
+            ssdt_name += "-EC"
+            print(" - EC not found, adding to SSDT...")
+            dsl += """
+// Inject Fake EC device
+DefinitionBlock("", "SSDT", 2, "hack", "EC", 0)
+{
+    Device(_SB.EC)
+    {
+        Name(_HID, "EC000000")
+    }
+}
+"""
+        else:
+            print(" - EC found!  Omitting from SSDT...")
+        print("Opening IOUSBHostFamily Info.plist...")
+        # Now we check if our model is in the IOUSBHostFamily Info.plist
+        m = self.get_model()
+        try:
+            with open("/System/Library/Extensions/IOUSBHostFamily.kext/Contents/Info.plist","rb") as f:
+                usb_plist = plist.load(f)
+            usb_list = usb_plist.get("IOKitPersonalities",{})
+        except:
+            print(" - Failed to open IOUSBHostFamily.kext's Info.plist!")
+            print("Aborting...")
+            print("")
+            self.u.grab("Press [enter] to return...")
+            return
+        # Let's see if our SMBIOS is present
+        print(" - Checking for {} in Info.plist...".format(m))
+        if m in usb_list:
+            print(" --> Found!  Omitting from SSDT...")
+        else:
+            ssdt_name += "-USBX"
+            print(" --> Not Found!  Finding closest match...")
+            # Get the model we have without the numbers
+            mn = "".join([x for x in m if not x in "0123456789,"])
+            n1=n2=0
+            newest = None
+            for x in usb_list:
+                if x.startswith("AppleUSBHostResources"):
+                    # Skip - not a model
+                    continue
+                xn = "".join([y for y in x if not y in "0123456789,"])
+                if xn == mn:
+                    # Found a match - let's compare the numbers
+                    try:
+                        x1,x2 = x.replace(xn,"").split(",")
+                        if int(x1) > n1 or (int(x1) == n1 and int(x2) > n2):
+                            # Larger either primary or sub
+                            n1 = int(x1)
+                            n2 = int(x2)
+                            newest = x
+                    except:
+                        pass
+            if newest == None:
+                # Didn't find a match - have the user pick from the list
+                model_list = sorted([x for x in usb_list if not x.startswith("AppleUSBHostResources")])
+                pad = 12
+                while True:
+                    self.u.head("Select Close SMBIOS")
+                    print("")
+                    print("{} not found in IOUSBHostFamily's Info.plist please pick".format(m))
+                    print("the closest match in age/form factor from below:\n")
+                    count = 0
+                    for x in model_list:
+                        count +=1 
+                        print("{}. {}".format(count, x))
+                    h = count+pad if count+pad > 24 else 24
+                    self.u.resize(80, h)
+                    print("M. Main Menu")
+                    print("Q. Quit")
+                    print("")
+                    menu = self.u.grab("Please select an option:  ")
+                    if not len(menu):
+                        continue
+                    if menu.lower() == "m":
+                        return
+                    elif menu.lower() == "q":
+                        self.u.resize(80,24)
+                        self.u.custom_quit()
+                    # attempt to select from the list
+                    try:
+                        u = int(menu)
+                        newest = model_list[u-1]
+                        break
+                    except:
+                        # Not a valid number
+                        continue
+                # Reset the window size and setup the new header
+                self.u.resize(80,24)
+                self.u.head("Generating SSDT For EC/USBX")
+                print("")
+                # Fill in missing log values...
+                print("Locating EC in IOReg...")
+                ec = " - EC not found, adding to SSDT..." if "EC" in ssdt_name else " - EC found!  Omitting from SSDT..."
+                print(ec)
+                print("Opening IOUSBHostFamily Info.plist...")
+                print(" - Checking for {} in Info.plist...".format(m))
+                print(" --> Not Found!  Finding closest match...")
+                print(" --> No close match found - user prompted...")
+            print(" --> Continuing with {}".format(newest))
+            print("Gathering values for {}...".format(newest))
+            props = usb_list[newest].get("IOProviderMergeProperties",{})
+            if len(props):
+                # Add the header!
+                dsl += """
+// USB power properties via USBX device
+DefinitionBlock("", "SSDT", 2, "hack", "USBX", 0)
+{
+    Device(_SB.USBX)
+    {
+        Name(_ADR, 0)
+        Method (_DSM, 4)
+        {
+            If (!Arg2) { Return (Buffer() { 0x03 } ) }
+            Return (Package()
+            {
+                // these values from """ + newest + "\n"
+                for x in props:
+                    v = usb_list[newest]["IOProviderMergeProperties"][x]
+                    print(" - {} --> {}".format(x, v))
+                    dsl += '                "{}", {},\n'.format(x, v)
+                # Add the footer
+                dsl += """
+            })
+        }
+    }
+}
+"""
+        if ssdt_name == "SSDT":
+            print("No changes were made, this SSDT is not needed.")
+            print("")
+            self.u.grab("Press [enter] to return...")
+            return
+        # Make sure we have an //EOF comment
+        dsl += "//EOF"
+        # Save the output - then try to compile it
+        print("Writitng {}.dsl...".format(ssdt_name))
+        with open("{}.dsl".format(ssdt_name), "w") as f:
+            f.write(dsl)
+        print("Compiling {}.dsl...".format(ssdt_name))
+        # Try to compile
+        out = self.compile("{}.dsl".format(ssdt_name))
+        if not out:
+            print(" - Created {}.dsl - but could not compile!".format(ssdt_name))
+            self.re.reveal("{}.dsl".format(ssdt_name))
+        else:
+            print(" - Created {}.aml!".format(ssdt_name))
+            self.re.reveal(out)
+        print("")
+        self.u.grab("Press [enter] to return...")
+
+    def main(self):
+        self.u.resize(80, 25)
         self.u.head("USBMap")
         print("")
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
@@ -1007,6 +1193,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         print("R. Remove Plist")
         print("P. Edit Plist & Create SSDT/Kext")
         print("D. Discover Ports")
+        print("U. Generate USB Power SSDT")
         print("Q. Quit")
         print("")
         menu = self.u.grab("Please select and option:  ")
@@ -1040,6 +1227,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 os.unlink(self.plist)
         elif menu.lower() == "p":
             self.edit_plist()
+        elif menu.lower() == "u":
+            self.power_ssdt()
         elif menu.lower() == "e" and os.path.exists("Exclusion-Arg.txt"):
             with open("Exclusion-Arg.txt", "r") as f:
                 ea = f.read().strip()
