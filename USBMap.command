@@ -1058,7 +1058,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # so we return 0 to prompt for an EC fake SSDT to be made
         return 0
 
-    def power_ssdt(self):
+    def power_ssdt(self, force_ec = False):
         # Puts together an EC device in the SSDT
         # then checks if the current SMBIOS is in IOUSBHostFamily.kext/Contents/Info.plist
         # and if not - picks the newest model from there within the same family
@@ -1086,7 +1086,7 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
 {
 """
         # Add the EC device if we don't have one
-        check_ec = self.check_ec()
+        check_ec = 0 if force_ec else self.check_ec()
         if check_ec == 0:
             # We failed some check, need to make the SSDT
             ssdt_name += "-EC"
@@ -1263,7 +1263,7 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
         self.u.grab("Press [enter] to return...")
 
     def main(self):
-        self.u.resize(80, 25)
+        self.u.resize(80, 26)
         self.u.head("USBMap")
         print("")
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
@@ -1307,11 +1307,12 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
         print("  S. Exclude SSxx Ports (-uia_exclude_ss)")
         print("  C. Clear Exclusions")
         print("")
-        print("R. Remove Plist")
-        print("P. Edit Plist & Create SSDT/Kext")
-        print("D. Discover Ports")
-        print("U. Generate USB Power SSDT")
-        print("Q. Quit")
+        print("R.  Remove Plist")
+        print("P.  Edit Plist & Create SSDT/Kext")
+        print("D.  Discover Ports")
+        print("U.  Generate USB Power SSDT")
+        print("UE. Generate USB Power SSDT and force EC SSDT")
+        print("Q.  Quit")
         print("")
         menu = self.u.grab("Please select and option:  ")
         if not len(menu):
@@ -1346,6 +1347,8 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
             self.edit_plist()
         elif menu.lower() == "u":
             self.power_ssdt()
+        elif menu.lower() == "ue":
+            self.power_ssdt(True)
         elif menu.lower() == "e" and os.path.exists("Exclusion-Arg.txt"):
             with open("Exclusion-Arg.txt", "r") as f:
                 ea = f.read().strip()
