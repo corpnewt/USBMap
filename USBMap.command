@@ -612,7 +612,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # Check for check_ux, ux_model in Info.plist, and uxm_data
         # if all three line up, then we need an AppleBusPowerController override
         if check_ux:
-            print("Checking AppleBusPowerControl setup...")
+            print("Checking USB power setup...")
             # We're actively checking power - we need to check if our currently
             # selected model is in the IOUSBHubFamily.kext's Info.plist - and
             # if so, we need to pull that info *unless* we have uxm_data already
