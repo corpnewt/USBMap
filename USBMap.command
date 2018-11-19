@@ -10,6 +10,8 @@ class USBMap:
         self.iasl_url = "https://bitbucket.org/RehabMan/acpica/downloads/iasl.zip"
         self.iasl = None
         self.re = reveal.Reveal()
+        self.ec = True # True = yes, False = no, None = force fake
+        self.usbx = True # True = yes, False = no, a string with a model number will pull that data from Info.plist
         self.scripts = "Scripts"
         self.usb_re = re.compile("(SS|SSP|HS|HP|PR|USR)[a-fA-F0-9]{1,2}@[a-fA-F0-9]{1,}")
         self.usb_dict = {}
@@ -520,10 +522,25 @@ class USBMap:
     def al(self, totext, addtext, indent = 0, itext = "    "):
         return totext + (itext*indent) + addtext + "\n"
 
-    def build_ssdt(self):
+    def build_ssdt(self, **kwargs):
         # Builds an SSDT-UIAC.dsl with the supplied info
         # Structure should be fairly easy - just need to supply info
         # programmatically with some specifics
+
+        # We're also going to roll in the EC device checking, USBX info
+        # and AppleBusPowerController stuffs from our power SSDT
+
+        # See if we need to check/force EC and USBX
+        # and see if we need a power override based on model
+        # or manual values.
+        #
+        # EC Values
+        check_ec = kwargs.get("check_ec",False) # True = Yes, False = No, None = Force
+        # USBX Values
+        check_ux = kwargs.get("check_ux",True) # Needed for the others
+        ux_model = kwargs.get("ux_model", self.get_model()) # USBX Model selected, if any - to check for presence in Info.plist - should be provided
+        uxm_data = kwargs.get("uxm_data",None)  # Dict of data to override with - or None for no override
+
         self.u.resize(80, 24)
         self.u.head("Creating SSDT-UIAC")
         print("")
@@ -547,6 +564,116 @@ class USBMap:
 
 DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
 {
+"""
+
+        ########################################################################
+        #                           EC Device Setup                            #
+        ########################################################################
+        # EC checks - just in case
+        # Add the EC device if we don't have one
+        if check_ec in [True,None]:
+            print("Checking EC...")
+            # We're checking EC - get the return
+            ec_check = 0 if check_ec == None else self.check_ec()
+            if ec_check == 0:
+                # We failed some check, need to make the SSDT
+                print(" - EC SSDT required...")
+                dsl += """
+    // Inject Fake EC device
+    Device(_SB.EC)
+    {
+        Name(_HID, "EC000000")
+    }
+"""
+            else:
+                print(" - EC SSDT not required...")
+            # Provide rename data if needed
+            if ec_check in [1,2,3]:
+                # Gather our rename vars
+                name = ["EC0","H_EC","ECDV"][ec_check-1]
+                fhex = ["4543305f","485f4543","45434456"][ec_check-1]
+                fb64 = ["RUMwXw==","SF9FQw==","RUNEVg=="][ec_check-1]
+                # Print the rename info
+                print("")
+                print(self.rs+"The following is required for EC in config.plist -> ACPI -> Patches:"+self.ce)
+                print("")
+                print(self.bs+"Comment:"+self.cs+"  Rename {} to EC".format(name)+self.ce)
+                print(self.rs+"Hex Values:"+self.ce)
+                print(self.bs+" - Find:"+self.cs+"  {}".format(fhex)+self.ce)
+                print(self.bs+" - Repl:"+self.cs+"  45435f5f"+self.ce)
+                print(self.rs+"Base64 Values:"+self.ce)
+                print(self.bs+" - Find:"+self.cs+"  {}".format(fb64)+self.ce)
+                print(self.bs+" - Repl:"+self.cs+"  RUNfXw=="+self.ce)
+                print("")
+
+        ########################################################################
+        #                          USBX Power Setup                            #
+        ########################################################################
+        # Check for check_ux, ux_model in Info.plist, and uxm_data
+        # if all three line up, then we need an AppleBusPowerController override
+        if check_ux:
+            print("Checking AppleBusPowerControl setup...")
+            # We're actively checking power - we need to check if our currently
+            # selected model is in the IOUSBHubFamily.kext's Info.plist - and
+            # if so, we need to pull that info *unless* we have uxm_data already
+            # provided for us - then we override with that regardless.
+            usb_data = self.get_usb_info()
+            # Let's see if our model is in here
+            m = self.get_closest_smbios(usb_data, ux_model)
+            if ux_model == m and not uxm_data:
+                print(" - Found {} in Info.plist - no overrides provided...".format(m))
+            elif ux_model == m and uxm_data:
+                print(" - Found {} in Info.plist - but user overrides provided...".format(m))
+                # Our model exists in the Info.plist - and we have an override!
+                # Add the header, and start off with this data
+                dsl += """
+    // USB Ports Mapped
+    Device(UIAC)
+    {
+        Name(_HID, "UIA00000")
+    
+        Name(RMCF, Package()
+        {
+            // USB Power Properties for Sierra+ (using USBInjectAll injection)
+            "AppleBusPowerController", Package()
+            {
+                // these values are user supplied""" + "\n"
+                for x in uxm_data:
+                    v = uxm_data[x]
+                    print(" -- {} --> {}".format(x, v))
+                    dsl += '                "{}", {},\n'.format(x, v)
+                # Add the footer:
+                dsl += "            },\n"
+            elif ux_model != m:
+                if uxm_data:
+                    print(" - {} not found in Info.plist, but user overrides provided...".format(ux_model))
+                else:
+                    print(" - {} not found in Info.plist, using properties from {}...".format(ux_model, m))
+                    uxm_data = usb_data[m]["IOProviderMergeProperties"]
+                # Our model was not found in the Info.plist - add our own
+                # USBX device followed by the UIAC device
+                dsl += """
+    // USB power properties via USBX device
+    Device(_SB.USBX)
+    {
+        Name(_ADR, 0)
+        Method (_DSM, 4)
+        {
+            If (!Arg2) { Return (Buffer() { 0x03 } ) }
+            Return (Package()
+            {
+                // these values from """ + m + "\n"
+                for x in uxm_data:
+                    v = uxm_data[x]
+                    print(" -- {} --> {}".format(x, v))
+                    dsl += '                "{}", {},\n'.format(x, v)
+                # Add the footer
+                dsl += """
+            })
+        }
+    }
+
+    // USB Ports Mapped
     Device(UIAC)
     {
         Name(_HID, "UIA00000")
@@ -554,6 +681,20 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         Name(RMCF, Package()
         {
 """
+        else:
+            dsl += """
+    // USB Ports Mapped
+    Device(UIAC)
+    {
+        Name(_HID, "UIA00000")
+    
+        Name(RMCF, Package()
+        {
+"""
+
+        ########################################################################
+        #                          UIAC Ports Setup                            #
+        ########################################################################
         # Initialize and format the data
         ports = {}
         excluded = []
@@ -652,6 +793,10 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # Close out the rest of the dsl
         dsl = self.al(dsl, "})", 2)
         dsl = self.al(dsl, "}", 1)
+
+        ########################################################################
+        #                           Finalize SSDT                              #
+        ########################################################################
         dsl = self.al(dsl, "}")
         dsl = self.al(dsl, "//EOF")
         # Save the output - then try to compile it
@@ -706,7 +851,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             self.u.head("Edit USB.plist")
             print("")
             count  = 0
-            pad    = 19
+            pad    = 26
             extras = 0
             #sel    = 0
             sel    = {
@@ -764,6 +909,29 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             print(ptext)
             h = count+extras+pad if count+extras+pad > 24 else 24
             self.u.resize(80, h)
+            # Let's display some defaults with the ability to change them for USB power stuffs
+            ec = self.bs+"Force Fake"+self.ce
+            if self.ec == True:
+                ec = self.cs+"Yes"+self.ce
+            elif self.ec == False:
+                ec = self.rs+"No"+self.ce
+            usbx = self.cs+"Yes"+self.ce
+            if self.usbx in [True,False]:
+                usbx = self.rs+"No"+self.ce if self.usbx == False else self.cs+"Yes"+self.ce
+            else:
+                # USBX is probably a string - try to set it to the var
+                s = self.get_closest_smbios(self.get_usb_info(),self.usbx)
+                if s:
+                    usbx = self.bs+"Force Values From {}".format(s)+self.ce
+                else:
+                    self.usbx = True
+            print("Check EC:    {}".format(ec))
+            print("Check USBX:  {}".format(usbx))
+            print("")
+            print("E. Toggle EC (Yes, No, Force)")
+            print("U. Toggle USBX (Yes, No)")
+            print("O. Pick SMBIOS for USBX Override")
+            print("")
             print("M. Main Menu")
             print("A. Select All")
             print("N. Select None")
@@ -783,6 +951,27 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 self.u.custom_quit()
             elif menu.lower() == "m":
                 return
+            elif menu.lower() == "e":
+                if self.ec == True:
+                    self.ec = False
+                elif self.ec == False:
+                    self.ec = None
+                else:
+                    self.ec = True
+                continue
+            elif menu.lower() == "u":
+                if not self.usbx in [True,False]:
+                    self.usbx = True
+                elif self.usbx == True:
+                    self.usbx = False
+                else:
+                    self.usbx = True
+                continue
+            elif menu.lower() == "o":
+                over = self.user_pick_smbios(False)
+                if over:
+                    self.usbx = over
+                continue
             elif menu.lower() == "t":
                 self.print_types()
                 continue
@@ -790,7 +979,19 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 self.build_kext()
                 return
             elif menu.lower() == "s":
-                self.build_ssdt()
+                # Gather args
+                args = {"check_ec":self.ec}
+                if self.usbx in [True,False]:
+                    # On or off - just pass that along
+                    args["check_ux"] = self.usbx
+                else:
+                    args["check_ux"] = True
+                    # It's a different value - let's get it!
+                    u = self.get_usb_info()
+                    s = self.get_closest_smbios(u,self.usbx)
+                    if s:
+                        args["uxm_data"] = u[s]["IOProviderMergeProperties"]
+                self.build_ssdt(**args)
                 return
             elif menu.lower() in ["a","n"]:
                 setto = (menu.lower() == "a")
@@ -1058,212 +1259,97 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # so we return 0 to prompt for an EC fake SSDT to be made
         return 0
 
-    def power_ssdt(self, force_ec = False):
-        # Puts together an EC device in the SSDT
-        # then checks if the current SMBIOS is in IOUSBHostFamily.kext/Contents/Info.plist
-        # and if not - picks the newest model from there within the same family
-        # and applies that device's values to the SSDT as well
-        #
-        # First we check for the AppleACPIEC device - this should match in **2** places if it exists
-        # First is IOKitDiagnostics, second is the actual AppleACPIEC device.  The former will match
-        # even if we don't have a valid EC device - so we ignore that.
-        self.u.resize(80, 24)
-        self.u.head("Generating SSDT For EC/USBX")
-        print("")
-        print("Checking EC requirements...")
-        ssdt_name = "SSDT"
-        dsl = """
-// SSDT-EC-USBX.dsl
-//
-// This SSDT contains the EC and USBX (if needed) devices created by CorpNewt's
-// USBMap script for USB Charging to work on 10.12+.
-//
-// Credits for the logic behind this:
-// RehabMan - https://www.tonymacx86.com/threads/guide-usb-power-property-injection-for-sierra-and-later.222266/
-//
-
-DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
-{
-"""
-        # Add the EC device if we don't have one
-        check_ec = 0 if force_ec else self.check_ec()
-        if check_ec == 0:
-            # We failed some check, need to make the SSDT
-            ssdt_name += "-EC"
-            print(" - EC SSDT required...")
-            dsl += """
-    // Inject Fake EC device
-    Device(_SB.EC)
-    {
-        Name(_HID, "EC000000")
-    }
-"""
-        else:
-            print(" - EC SSDT not required - Omitting...")
-        print("Opening IOUSBHostFamily Info.plist...")
-        # Now we check if our model is in the IOUSBHostFamily Info.plist
-        m = self.get_model()
+    def get_usb_info(self):
         try:
             with open("/System/Library/Extensions/IOUSBHostFamily.kext/Contents/Info.plist","rb") as f:
                 usb_plist = plist.load(f)
-            usb_list = usb_plist.get("IOKitPersonalities",{})
+            usb_list = usb_plist.get("IOKitPersonalities",None)
         except:
+            return None
+        return usb_list
+
+    def get_closest_smbios(self, info = {}, smbios = None):
+        if not smbios:
+            smbios = self.get_model()
+        if info == {}:
+            info = self.get_usb_info()
+        if smbios in info:
+            # Already there - just return it
+            return smbios
+        # Get the model we have without the numbers
+        mn = "".join([x for x in smbios if not x in "0123456789,"])
+        n1=n2=0
+        newest = None
+        for x in info:
+            if x.startswith("AppleUSBHostResources"):
+                # Skip - not a model
+                continue
+            xn = "".join([y for y in x if not y in "0123456789,"])
+            if xn == mn:
+                # Found a match - let's compare the numbers
+                try:
+                    x1,x2 = x.replace(xn,"").split(",")
+                    if int(x1) > n1 or (int(x1) == n1 and int(x2) > n2):
+                        # Larger either primary or sub
+                        n1 = int(x1)
+                        n2 = int(x2)
+                        newest = x
+                except:
+                    pass
+        # Return newest - it will be None if no match is found
+        return newest
+
+    def user_pick_smbios(self, close=True):
+        # Didn't find a match - have the user pick from the list
+        usb_list = self.get_usb_info()
+        m = self.get_model()
+        if usb_list == None:
             print(" - Failed to open IOUSBHostFamily.kext's Info.plist!")
             print("Aborting...")
             print("")
             self.u.grab("Press [enter] to return...")
-            return
-        # Let's see if our SMBIOS is present
-        print(" - Checking for {} in Info.plist...".format(m))
-        if m in usb_list:
-            print(" --> Found!  Omitting from SSDT...")
-        else:
-            ssdt_name += "-USBX"
-            print(" --> Not Found!  Finding closest match...")
-            # Get the model we have without the numbers
-            mn = "".join([x for x in m if not x in "0123456789,"])
-            n1=n2=0
-            newest = None
-            for x in usb_list:
-                if x.startswith("AppleUSBHostResources"):
-                    # Skip - not a model
-                    continue
-                xn = "".join([y for y in x if not y in "0123456789,"])
-                if xn == mn:
-                    # Found a match - let's compare the numbers
-                    try:
-                        x1,x2 = x.replace(xn,"").split(",")
-                        if int(x1) > n1 or (int(x1) == n1 and int(x2) > n2):
-                            # Larger either primary or sub
-                            n1 = int(x1)
-                            n2 = int(x2)
-                            newest = x
-                    except:
-                        pass
-            if newest == None:
-                # Didn't find a match - have the user pick from the list
-                model_list = sorted([x for x in usb_list if not x.startswith("AppleUSBHostResources")])
-                pad = 12
-                while True:
-                    self.u.head("Select Close SMBIOS")
-                    print("")
-                    print("{} not found in IOUSBHostFamily's Info.plist please pick".format(m))
-                    print("the closest match in age/form factor from below:\n")
-                    count = 0
-                    for x in model_list:
-                        count +=1 
-                        print("{}. {}".format(count, x))
-                    h = count+pad if count+pad > 24 else 24
-                    self.u.resize(80, h)
-                    print("M. Main Menu")
-                    print("Q. Quit")
-                    print("")
-                    menu = self.u.grab("Please select an option:  ")
-                    if not len(menu):
-                        continue
-                    if menu.lower() == "m":
-                        return
-                    elif menu.lower() == "q":
-                        self.u.resize(80,24)
-                        self.u.custom_quit()
-                    # attempt to select from the list
-                    try:
-                        u = int(menu)
-                        newest = model_list[u-1]
-                        break
-                    except:
-                        # Not a valid number
-                        continue
-                # Reset the window size and setup the new header
-                self.u.resize(80,24)
-                self.u.head("Generating SSDT For EC/USBX")
+            return None
+        model_list = sorted([x for x in usb_list if not x.startswith("AppleUSBHostResources")])
+        pad = 10
+        h = len(usb_list)+pad if len(usb_list)+pad > 24 else 24
+        self.u.resize(80, h)
+        while True:
+            if close:
+                self.u.head("Select Close SMBIOS")
                 print("")
-                # Fill in missing log values...
-                print("Checking EC requirements...")
-                ec = " - EC SSDT required..." if check_ec == 0 else " - EC SSDT not required - Omitting..."
-                print(ec)
-                print("Opening IOUSBHostFamily Info.plist...")
-                print(" - Checking for {} in Info.plist...".format(m))
-                print(" --> Not Found!  Finding closest match...")
-                print(" --> No close match found - user prompted...")
-            print(" --> Continuing with {}".format(newest))
-            print("Gathering values for {}...".format(newest))
-            props = usb_list[newest].get("IOProviderMergeProperties",{})
-            if len(props):
-                # Add the header!
-                dsl += """
-// USB power properties via USBX device
-    Device(_SB.USBX)
-    {
-        Name(_ADR, 0)
-        Method (_DSM, 4)
-        {
-            If (!Arg2) { Return (Buffer() { 0x03 } ) }
-            Return (Package()
-            {
-                // these values from """ + newest + "\n"
-                for x in props:
-                    v = usb_list[newest]["IOProviderMergeProperties"][x]
-                    print(" - {} --> {}".format(x, v))
-                    dsl += '                "{}", {},\n'.format(x, v)
-                # Add the footer
-                dsl += """
-            })
-        }
-    }
-"""
-
-        # Check if we need renames in config.plist
-        if check_ec in [1,2,3]:
-            if check_ec == 1:
-                name = "EC0"
-                fhex = "4543305f"
-                fb64 = "RUMwXw=="
-            elif check_ec == 2:
-                name = "H_EC"
-                fhex = "485f4543"
-                fb64 = "SF9FQw=="
-            elif check_ec == 3:
-                name = "ECDV"
-                fhex = "45434456"
-                fb64 = "RUNEVg=="
-            # Rename EC0 -> EC
+                print("{} not found in IOUSBHostFamily's Info.plist please pick".format(m))
+                print("the closest match in age/form factor from below:\n")
+            else:
+                self.u.head("Select SMBIOS")
+                print("")
+                print("Current SMBIOS:  {}".format(m))
+                print("Please select the target SMBIOS from the following list:\n")
+            count = 0
+            for x in model_list:
+                count +=1 
+                print("{}. {}".format(count, x))
             print("")
-            print("The following is required for EC in config.plist -> ACPI -> Patches:")
+            print("M. Return to previous menu")
+            print("Q. Quit")
             print("")
-            print("Comment:  Rename {} to EC".format(name))
-            print("Hex:")
-            print(" - Find:  {}".format(fhex))
-            print(" - Repl:  45435f5f")
-            print("Base64:")
-            print(" - Find:  {}".format(fb64))
-            print(" - Repl:  RUNfXw==")
-            print("")
-        if ssdt_name == "SSDT":
-            print("No changes were made, this SSDT is not needed.")
-            print("")
-            self.u.grab("Press [enter] to return...")
-            return
-        # Make sure we have an //EOF comment
-        dsl += "}\n//EOF"
-        # Save the output - then try to compile it
-        print("Writitng {}.dsl...".format(ssdt_name))
-        with open("{}.dsl".format(ssdt_name), "w") as f:
-            f.write(dsl)
-        print("Compiling {}.dsl...".format(ssdt_name))
-        # Try to compile
-        out = self.compile("{}.dsl".format(ssdt_name))
-        if not out:
-            print(" - Created {}.dsl - but could not compile!".format(ssdt_name))
-            self.re.reveal("{}.dsl".format(ssdt_name))
-        else:
-            print(" - Created {}.aml!".format(ssdt_name))
-            self.re.reveal(out)
-        print("")
-        self.u.grab("Press [enter] to return...")
+            menu = self.u.grab("Please select an option:  ")
+            if not len(menu):
+                continue
+            if menu.lower() == "m":
+                return None
+            elif menu.lower() == "q":
+                self.u.resize(80,24)
+                self.u.custom_quit()
+            # attempt to select from the list
+            try:
+                u = int(menu)
+                return model_list[u-1]
+            except:
+                # Not a valid number
+                continue
 
     def main(self):
-        self.u.resize(80, 26)
+        self.u.resize(80, 24)
         self.u.head("USBMap")
         print("")
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
@@ -1310,8 +1396,6 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
         print("R.  Remove Plist")
         print("P.  Edit Plist & Create SSDT/Kext")
         print("D.  Discover Ports")
-        print("U.  Generate USB Power SSDT")
-        print("UE. Generate USB Power SSDT and force EC SSDT")
         print("Q.  Quit")
         print("")
         menu = self.u.grab("Please select and option:  ")
@@ -1345,10 +1429,6 @@ DefinitionBlock("", "SSDT", 2, "hack", "ECUSBX", 0)
                 os.unlink(self.plist)
         elif menu.lower() == "p":
             self.edit_plist()
-        elif menu.lower() == "u":
-            self.power_ssdt()
-        elif menu.lower() == "ue":
-            self.power_ssdt(True)
         elif menu.lower() == "e" and os.path.exists("Exclusion-Arg.txt"):
             with open("Exclusion-Arg.txt", "r") as f:
                 ea = f.read().strip()
