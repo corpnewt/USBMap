@@ -12,6 +12,7 @@ class USBMap:
         self.re = reveal.Reveal()
         self.ec = True # True = yes, False = no, None = force fake
         self.usbx = True # True = yes, False = no, a string with a model number will pull that data from Info.plist
+        self.usb_overrides = {} # Dict of key/value pairs for power overrides
         self.scripts = "Scripts"
         self.usb_re = re.compile("(SS|SSP|HS|HP|PR|USR)[a-fA-F0-9]{1,2}@[a-fA-F0-9]{1,}")
         self.usb_dict = {}
@@ -916,21 +917,17 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             elif self.ec == False:
                 ec = self.rs+"No"+self.ce
             usbx = self.cs+"Yes"+self.ce
-            if self.usbx in [True,False]:
-                usbx = self.rs+"No"+self.ce if self.usbx == False else self.cs+"Yes"+self.ce
+            if len(self.usb_overrides):
+                # We have overrides
+                usbx = self.cs+"Yes"+self.bs+", With 1 Custom Override"+self.ce if len(self.usb_overrides) == 1 else self.cs+"Yes"+self.bs+", With {} Custom Overrides".format(len(self.usb_overrides))+self.ce
             else:
-                # USBX is probably a string - try to set it to the var
-                s = self.get_closest_smbios(self.get_usb_info(),self.usbx)
-                if s:
-                    usbx = self.bs+"Force Values From {}".format(s)+self.ce
-                else:
-                    self.usbx = True
+                usbx = self.rs+"No"+self.ce if self.usbx == False else self.cs+"Yes"+self.ce
             print("Check EC:    {}".format(ec))
             print("Check USBX:  {}".format(usbx))
             print("")
             print("E. Toggle EC (Yes, No, Force)")
-            print("U. Toggle USBX (Yes, No)")
-            print("O. Pick SMBIOS for USBX Override")
+            print("U. Toggle USBX (Yes, No){}".format(" - Removes Overrides!" if len(self.usb_overrides) else ""))
+            print("O. Set USB Overrides")
             print("")
             print("M. Main Menu")
             print("A. Select All")
@@ -960,6 +957,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     self.ec = True
                 continue
             elif menu.lower() == "u":
+                self.usb_overrides = {}
                 if not self.usbx in [True,False]:
                     self.usbx = True
                 elif self.usbx == True:
@@ -968,9 +966,9 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     self.usbx = True
                 continue
             elif menu.lower() == "o":
-                over = self.user_pick_smbios(False)
-                if over:
-                    self.usbx = over
+                self.get_overrides()
+                if len(self.usb_overrides):
+                    self.usbx = True
                 continue
             elif menu.lower() == "t":
                 self.print_types()
@@ -981,16 +979,12 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             elif menu.lower() == "s":
                 # Gather args
                 args = {"check_ec":self.ec}
-                if self.usbx in [True,False]:
+                if self.usbx:
                     # On or off - just pass that along
                     args["check_ux"] = self.usbx
-                else:
-                    args["check_ux"] = True
-                    # It's a different value - let's get it!
-                    u = self.get_usb_info()
-                    s = self.get_closest_smbios(u,self.usbx)
-                    if s:
-                        args["uxm_data"] = u[s]["IOProviderMergeProperties"]
+                if len(self.usb_overrides):
+                    # We have custom overrides
+                    args["uxm_data"] = self.usb_overrides
                 self.build_ssdt(**args)
                 return
             elif menu.lower() in ["a","n"]:
@@ -1028,6 +1022,64 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             with open(self.plist, "wb") as f:
                 plist.dump(p, f)
 
+    def get_overrides(self):
+        while True:
+            self.u.resize(80,24)
+            self.u.head("USB Overrides")
+            pad = 13
+            print("")
+            if not len(self.usb_overrides):
+                count = 1
+                print(self.rs+"No USB overrides set."+self.ce)
+            else:
+                count = 0
+                for x in self.usb_overrides:
+                    count += 1
+                    print("{}. {}{}{}:{}{}{}".format(count, self.bs, x, self.ce, self.cs, self.usb_overrides[x], self.ce))
+            print("")
+            print("You can add a new override by typing name:value (eg. kUSBWakePowerSupply:5100)")
+            print("or you can remove existing values by typing their number.")
+            print("")
+            print("S. Copy From SMBIOS (located in IOUSBHubFamily.kext's Info.plist)")
+            print("C. Clear All")
+            print("M. Return to Menu")
+            print("Q. Quit")
+            h = count+pad if count+pad > 24 else 24
+            self.u.resize(80, h)
+            menu = self.u.grab("Please select an option:  ")
+            if not len(menu):
+                continue
+            elif menu.lower() == "m":
+                return
+            elif menu.lower() == "c":
+                self.usb_overrides = {}
+                continue
+            elif menu.lower() == "q":
+                self.u.resize(80,24)
+                self.u.custom_quit()
+            elif menu.lower() == "s":
+                out = self.user_pick_smbios(False)
+                if out:
+                    # Got a valid SMBIOS version
+                    usb_data = self.get_usb_info()
+                    self.usb_overrides = usb_data[out]["IOProviderMergeProperties"]
+                continue
+            # Check if we have an int - and if it's in our list
+            try:
+                # Pop the key at index of menu-1 from our usb_overrides
+                self.usb_overrides.pop(list(self.usb_overrides)[int(menu)-1])
+                continue
+            except:
+                pass
+            # Well, not an int - let's try to split by : and get the values
+            try:
+                parts = menu.split(":")
+                k,v = parts[0], parts[1]
+                self.usb_overrides[k] = v
+            except:
+                # Not formatted right
+                continue
+
     def get_kb_ms(self):
         p = self.get_by_port()
         if not len(p):
@@ -1046,7 +1098,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             self.u.head("Select Keyboard And Mouse")
             print("")
             count  = 0
-            pad    = 14
+            pad    = 16
             extras = 0
             sel    = 0
             for u in self.sort(p):
@@ -1073,6 +1125,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             h = count+extras+pad if count+extras+pad > 24 else 24
             self.u.resize(80, h)
             print("C. Confirm")
+            print("A. Select All")
+            print("N. Select None")
             print("M. Main Menu")
             print("Q. Quit")
             print("")
@@ -1085,6 +1139,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 self.u.custom_quit()
             elif menu.lower() == "m":
                 return None
+            elif menu.lower() == "a":
+                for u in p:
+                    p[u]["selected"] = True
+                continue
+            elif menu.lower() == "n":
+                for u in p:
+                    p[u]["selected"] = False
+                continue
             elif menu.lower() == "c":
                 return self.sort([x for x in p if p[x]["selected"]])
             else:
@@ -1354,43 +1416,43 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         print("")
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
         if os.path.exists(self.plist):
-            print("Plist: {}".format(self.plist))
+            print("Plist: "+self.bs+"{}".format(self.plist)+self.ce)
         else:
-            print("Plist: None")
+            print("Plist: "+self.rs+"None"+self.ce)
         print("")
         args = self.get_uia_args()
         if len(args):
-            print("UIA Boot Args: {}".format(" ".join(args)))
+            print("UIA Boot Args: "+self.cs+"{}".format(" ".join(args))+self.ce)
         else:
-            print("UIA Boot Args: None")
+            print("UIA Boot Args: "+self.rs+"None"+self.ce)
         print("")
         uia_version = self.check_uia()
         uia_text = "USBInjectAll "
         if not uia_version:
             # Not loaded
-            uia_text += "Not Loaded - NVRAM boot-args WILL NOT WORK"
+            uia_text += self.rs+"Not Loaded - NVRAM boot-args WILL NOT WORK"+self.ce
         else:
             # Loaded - check if v is enough
             v = self.u.compare_versions(uia_version, self.min_uia_v)
             if v:
                 # Under minimum version
-                uia_text += "v{} Loaded - HSxx/SSxx Exclude WILL NOT WORK (0.7.0 min)".format(uia_version)
+                uia_text += self.cs+"v"+uia_version+" Loaded -"+self.bs+" HSxx/SSxx Exclude"+self.rs+" WILL NOT WORK"+self.bs+" (0.7.0 min)"+self.ce
             else:
                 # Equal to, or higher than the min version
-                uia_text += "v{} Loaded".format(uia_version)
+                uia_text += self.cs+"v{} Loaded".format(uia_version)+self.ce
         print(uia_text)
         print("")
-        aptio_loaded = "Unknown"
+        aptio_loaded = self.bs+"Unknown"+self.ce
         if self.bdmesg:
             aptio = self.r.run({"args":"{} | grep -i aptiomemoryfix".format(self.bdmesg),"shell":True})[0].strip("\n")
-            aptio_loaded = "Loaded" if "success" in aptio.lower() else "Not Loaded"
-        print("AptioMemoryFix {}{}".format(aptio_loaded, "" if aptio_loaded is "Loaded" else " - NVRAM boot-args MAY NOT WORK."))
+            aptio_loaded = self.cs+"Loaded"+self.ce if "success" in aptio.lower() else self.rs+"Not Loaded"+self.ce
+        print("AptioMemoryFix {}{}".format(aptio_loaded, "" if not "Not Loaded" in aptio_loaded else self.rs+" - NVRAM boot-args MAY NOT WORK."+self.ce))
         print("")
         print("NVRAM Arg Options:")
         if os.path.exists("Exclusion-Arg.txt"):
             print("  E. Apply Exclusion-Arg.txt")
-        print("  H. Exclude HSxx Ports (-uia_exclude_hs)")
-        print("  S. Exclude SSxx Ports (-uia_exclude_ss)")
+        print("  H. Exclude HSxx Ports ("+self.bs+"-uia_exclude_hs"+self.ce+")")
+        print("  S. Exclude SSxx Ports ("+self.bs+"-uia_exclude_ss"+self.ce+")")
         print("  C. Clear Exclusions")
         print("")
         print("R.  Remove Plist")
