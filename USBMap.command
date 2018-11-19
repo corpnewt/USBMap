@@ -615,7 +615,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         if check_ux:
             print("Checking USB power setup...")
             # We're actively checking power - we need to check if our currently
-            # selected model is in the IOUSBHubFamily.kext's Info.plist - and
+            # selected model is in the IOUSBHostFamily.kext's Info.plist - and
             # if so, we need to pull that info *unless* we have uxm_data already
             # provided for us - then we override with that regardless.
             usb_data = self.get_usb_info()
@@ -1040,7 +1040,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             print("You can add a new override by typing name:value (eg. kUSBWakePowerSupply:5100)")
             print("or you can remove existing values by typing their number.")
             print("")
-            print("S. Copy From SMBIOS (located in IOUSBHubFamily.kext's Info.plist)")
+            print("S. Copy From SMBIOS (located in IOUSBHostFamily.kext's Info.plist)")
             print("C. Clear All")
             print("M. Return to Menu")
             print("Q. Quit")
