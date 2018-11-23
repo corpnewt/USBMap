@@ -163,6 +163,20 @@ class USBMap:
         # Loop through all the _items and build a dict
         return self.loop_dict(system_usb, matched)
 
+    def map_inheritance(self, top, test, level = 1):
+        # Iterates through each item in test, and returns a string with children
+        # indented per level
+        text = []
+        for v in test:
+            # Let's see if v matches our top
+            if top.replace("0","") in v.get("location","unknown").replace("0",""):
+                value = ("    " * level) + "- " + v.get("name","Unknown")
+                text.append(value)
+                if "items" in v:
+                    # We have items!
+                    text.extend(self.map_inheritance(v["location"],v["items"],level+1))
+        return text
+
     def get_by_port(self):
         p = self.get_ports()
         d = self.get_by_device(p)
@@ -219,7 +233,9 @@ class USBMap:
             t = usb[name]["type"]
             items = []
             for x in d:
-                items.extend(list(self.gen_dict_extract(m.split("@")[-1], x)))
+                for y in x.get("items",[]):
+                    items.extend(self.map_inheritance(m.split("@")[-1], y.get("items",[])))
+                # items.extend(list(self.gen_dict_extract(m.split("@")[-1], x)))
             usb[name]["items"] = items
             if len(items):
                 usb[name]["selected"] = True
@@ -306,7 +322,8 @@ class USBMap:
                 print(ptext)
                 if len(new[port]["items"]):
                     extras += len(new[port]["items"])
-                    print("\n".join(["     - {}".format(x.encode("utf-8")) for x in new[port]["items"]]))
+                    # print("\n".join(["     - {}".format(x.encode("utf-8")) for x in new[port]["items"]]))
+                    print("\n".join([x.encode("utf-8") for x in new[port]["items"]]))
             seltext = []
             print("")
             for x in sel:
@@ -904,7 +921,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 print(ptext)
                 if len(p[u]["items"]):
                     extras += len(p[u]["items"])
-                    print("\n".join(["     - {}".format(x.encode("utf-8")) for x in p[u]["items"]]))
+                    # print("\n".join(["     - {}".format(x.encode("utf-8")) for x in p[u]["items"]]))
+                    print("\n".join([x.encode("utf-8") for x in p[u]["items"]]))
             print("")
             seltext = []
             for x in sel:
@@ -1123,7 +1141,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 print(ptext)
                 if len(p[u]["items"]):
                     extras += len(p[u]["items"])
-                    print("\n".join(["     - {}".format(x.encode("utf-8")) for x in p[u]["items"]]))
+                    # print("\n".join(["     - {}".format(x.encode("utf-8")) for x in p[u]["items"]]))
+                    print("\n".join([x.encode("utf-8") for x in p[u]["items"]]))
             print("")
             if sel < 1 or sel > 2:
                 ptext = "{}Selected: {}{}".format(self.rs, sel, self.ce)
