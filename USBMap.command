@@ -1460,7 +1460,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         print("D.  Discover Ports")
         print("Q.  Quit")
         print("")
-        menu = self.u.grab("Please select and option:  ")
+        menu = self.u.grab("Please select an option:  ")
         if not len(menu):
             return
         if menu.lower() == "q":
