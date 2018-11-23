@@ -623,6 +623,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             m = self.get_closest_smbios(usb_data, ux_model)
             if ux_model == m and not uxm_data:
                 print(" - Found {} in Info.plist - no overrides provided...".format(m))
+                dsl += """
+    // USB Ports Mapped
+    Device(UIAC)
+    {
+        Name(_HID, "UIA00000")
+    
+        Name(RMCF, Package()
+        {"""
             elif ux_model == m and uxm_data:
                 print(" - Found {} in Info.plist - but user overrides provided...".format(m))
                 # Our model exists in the Info.plist - and we have an override!
