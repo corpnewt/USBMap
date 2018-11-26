@@ -18,9 +18,6 @@ class USBMap:
         self.usb_dict = {}
         self.xch_devid = self.get_xhc_devid()
         self.min_uia_v = "0.7.0"
-        self.bdmesg = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.scripts, "bdmesg")
-        if not os.path.exists(self.bdmesg):
-            self.bdmesg = None
         self.plist = "usb.plist"
         self.disc_wait = 5
         self.cs = u"\u001b[32;1m"
@@ -1470,8 +1467,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         print(uia_text)
         print("")
         aptio_loaded = self.bs+"Unknown"+self.ce
-        if self.bdmesg:
-            aptio = self.r.run({"args":"{} | grep -i aptiomemoryfix".format(self.bdmesg),"shell":True})[0].strip("\n")
+        aptio = next((x for x in bdmesg.bdmesg().split("\n") if "aptiomemoryfix" in x.lower()), None)
+        if aptio:
             aptio_loaded = self.cs+"Loaded"+self.ce if "success" in aptio.lower() else self.rs+"Not Loaded"+self.ce
         print("AptioMemoryFix {}{}".format(aptio_loaded, "" if not "Not Loaded" in aptio_loaded else self.rs+" - NVRAM boot-args MAY NOT WORK."+self.ce))
         print("")
