@@ -1275,20 +1275,19 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # At this point - we know AppleBusPowerController isn't loaded - let's look at renames and such
         # Check for ECDT in ACPI - if this is present, all bets are off
         # and we need to avoid any EC renames and such
-        if self.bdmesg:
-            b = self.r.run({"args":[self.bdmesg]})[0]
-            primed = False
-            for line in b.split("\n"):
-                if "GetAcpiTablesList" in line:
-                    primed = True
-                    continue
-                if "GetUserSettings" in line:
-                    primed = False
-                    break
-                if primed:
-                    if "ECDT" in line:
-                        # We found ECDT - baaaaiiiillllll
-                        return 0
+        b = bdmesg.bdmesg()
+        primed = False
+        for line in b.split("\n"):
+            if "GetAcpiTablesList" in line:
+                primed = True
+                continue
+            if "GetUserSettings" in line:
+                primed = False
+                break
+            if primed:
+                if "ECDT" in line:
+                    # We found ECDT - baaaaiiiillllll
+                    return 0
 
         # No ECDT in bdmesg - or bdmesg isn't around, let's check for EC0 or H_EC
         pnp = self.r.run({"args":["ioreg", "-l", "-p", "IODeviceTree", "-w0"]})[0].split("\n")
