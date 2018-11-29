@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import os, sys, re, pprint, binascii, plistlib, shutil, tempfile, zipfile
+import os, sys, re, pprint, binascii, plistlib, shutil, tempfile, zipfile, base64, plistlib
 from Scripts import *
 
 class USBMap:
@@ -7,6 +7,7 @@ class USBMap:
         self.u = utils.Utils("USBMap")
         self.r = run.Run()
         self.d = downloader.Downloader()
+        self.k = disk.Disk()
         self.iasl_url = "https://bitbucket.org/RehabMan/acpica/downloads/iasl.zip"
         self.iasl = None
         self.re = reveal.Reveal()
@@ -603,6 +604,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             else:
                 print(" - EC SSDT not required...")
             # Provide rename data if needed
+            ec_check = 3
             if ec_check in [1,2,3]:
                 # Gather our rename vars
                 name = ["EC0","H_EC","ECDV"][ec_check-1]
@@ -620,6 +622,76 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 print(self.bs+" - Find:"+self.cs+"  {}".format(fb64)+self.ce)
                 print(self.bs+" - Repl:"+self.cs+"  RUNfXw=="+self.ce)
                 print("")
+                while True:
+                    # Find out if we should auto-apply the rename
+                    rename = self.u.grab("Apply automatically? (y/n):  ")
+                    if not len(rename):
+                        continue
+                    if rename[0].lower() == "n":
+                        break
+                    if rename[0].lower() == "y":
+                        # Apply the rename
+                        print("Applying {} to EC rename...".format(name))
+                        print(" - Locating EFI...")
+                        try:
+                            efi = self.k.get_efi(bdmesg.get_clover_uuid())
+                            is_mounted = self.k.is_mounted(efi)
+                            if is_mounted:
+                                print(" --> Found at {}".format(efi))
+                            else:
+                                print(" --> Found at {}, mounting...".format(efi))
+                                out = self.k.mount_partition(efi)
+                        except:
+                            # Failed to mount
+                            print(" --> Failed, aborting.")
+                            break
+                        if not self.k.get_mount_point(efi):
+                            print(" --> Failed to mount, aborting.")
+                            break
+                        # Locate the config.plist
+                        print(" - Locating config.plist...")
+                        config = os.path.join(self.k.get_mount_point(efi), "EFI", "CLOVER", "config.plist")
+                        if not os.path.exists(config):
+                            print(" --> Not found - aborting.")
+                            break
+                        # Load the config
+                        print(" --> Located - loading...")
+                        try:
+                            with open(config,"rb") as f:
+                                plist_data = plist.load(f)
+                        except:
+                            print(" --> Failed to load, aborting.")
+                            break
+                        # Add the value
+                        print(" --> Validating config.plist -> ACPI -> Patches")
+                        if not "ACPI" in plist_data:
+                            plist_data["ACPI"] = {}
+                        if not "DSDT" in plist_data["ACPI"]:
+                            plist_data["ACPI"]["DSDT"] = {}
+                        if not "Patches" in plist_data["ACPI"]["DSDT"]:
+                            plist_data["ACPI"]["DSDT"]["Patches"] = []
+                        print(" --> Adding {} -> EC Rename".format(name))
+                        plist_data["ACPI"]["DSDT"]["Patches"].append({
+                            "Comment" : "Rename {} to EC".format(name),
+                            "Disabled" : False,
+                            "Find" : plistlib.Data(name.decode("utf-8")),
+                            "Replace" : plistlib.Data("EC__".decode("utf-8"))
+                        })
+                        print(" --> Writing plist...")
+                        try:
+                            with open(config,"wb") as f:
+                                plist.dump(plist_data, f)
+                        except:
+                            print(" --> Failed to write, aborting.")
+                            break
+                        if not is_mounted:
+                            print(" --> Unmounting EFI...")
+                            try:
+                                self.k.unmount_partition(efi)
+                            except:
+                                print(" --> Failed to unmount.")
+                        break
+                        
 
         ########################################################################
         #                          USBX Power Setup                            #
