@@ -676,7 +676,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                                     # Found a match
                                     print(" ----> Found match!")
                                     found_patch = True
-                                    if x["Disabled"]:
+                                    if x.get("Disabled",False):
                                         print(" ----> Enabling...")
                                         x["Disabled"] = False
                                     else:
