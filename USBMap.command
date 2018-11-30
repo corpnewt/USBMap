@@ -666,7 +666,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                         patches = plist_data.get("ACPI",{}).get("DSDT",{}).get("Patches",[])
                         found_patch = False
                         if len(patches):
-                            print(" --> Checking for existing {} -> EC Rename...".format(name))
+                            print(" --> Checking for existing {} -> EC__ Rename...".format(name))
                             for x in patches:
                                 if not ("Find" in x and "Replace" in x):
                                     # Doesn't have all parts - avoid
