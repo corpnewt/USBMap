@@ -249,7 +249,7 @@ class USBMap:
             print("Was unable to locate any valid ports.")
             print("Please ensure you have XHC/EH01/EH02 in your IOReg")
             print("")
-            self.u.grab("Press [enter] to return...")
+            self.u.grab("Press [enter] to return")
             return None
         last     = self.get_by_port()
         # Now we loop - and show each device that's got something
@@ -260,7 +260,7 @@ class USBMap:
         #
         last_added = None
         while True:
-            self.u.head("Detecting Ports...")
+            self.u.head("Detecting Ports")
             print("")
             # Get the current ports - and compare them to the original
             # Only enabling those that aren't selected
@@ -335,7 +335,7 @@ class USBMap:
             print(ptext)
             h = count+extras+pad if count+extras+pad > 24 else 24
             self.u.resize(80, h)
-            print("Press Q and [enter] to stop...")
+            print("Press Q and [enter] to stop")
             print("")
             out = self.u.grab("Waiting {} seconds:  ".format(self.disc_wait), timeout=self.disc_wait)
             if not out or not len(out):
@@ -367,7 +367,7 @@ class USBMap:
         print("")
         print("Per the ACPI 6.2 Spec.")
         print("")
-        self.u.grab("Press [enter] to return...")
+        self.u.grab("Press [enter] to return")
         return
 
     def hex_to_data(self, number):
@@ -389,11 +389,11 @@ class USBMap:
         self.u.resize(80, 24)
         self.u.head("Creating USBMap.kext")
         print("")
-        print("Loading plist...")
+        print("Loading plist")
         # Builds the kext itself
         with open(self.plist, "rb") as f:
             p = plist.load(f)
-        print("Generating Info.plist...")
+        print("Generating Info.plist")
         # Get the model number
         m = self.get_model()
         # Separate by types and build the proper setups
@@ -468,7 +468,7 @@ class USBMap:
             "IOKitPersonalities" : ports,
             "OSBundleRequired" : "Root"
         }
-        print("Writing to USBMap.kext...")
+        print("Writing to USBMap.kext")
         # Remove if exists
         if os.path.exists("USBMap.kext"):
             shutil.rmtree("USBMap.kext", ignore_errors=True)
@@ -480,7 +480,7 @@ class USBMap:
         print(" - Created USBMap.kext!")
         self.re.reveal("USBMap.kext")
         print("")
-        self.u.grab("Press [enter] to return...")
+        self.u.grab("Press [enter] to return")
 
     def check_iasl(self):
         target = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.scripts, "iasl")
@@ -499,9 +499,9 @@ class USBMap:
     def _download_and_extract(self, temp, url):
         ztemp = tempfile.mkdtemp(dir=temp)
         zfile = os.path.basename(url)
-        print("Downloading {}...".format(os.path.basename(url)))
+        print("Downloading {}".format(os.path.basename(url)))
         self.d.stream_to_file(url, os.path.join(ztemp,zfile), False)
-        print(" - Extracting...")
+        print(" - Extracting")
         btemp = tempfile.mkdtemp(dir=temp)
         # Extract with built-in tools \o/
         with zipfile.ZipFile(os.path.join(ztemp,zfile)) as z:
@@ -511,9 +511,9 @@ class USBMap:
             if "iasl" in x.lower():
                 # Found one
                 print(" - Found {}".format(x))
-                print("   - Chmod +x...")
+                print("   - Chmod +x")
                 self.r.run({"args":["chmod","+x",os.path.join(btemp,x)]})
-                print("   - Copying to {} directory...".format(os.path.basename(script_dir)))
+                print("   - Copying to {} directory".format(os.path.basename(script_dir)))
                 shutil.copy(os.path.join(btemp,x), os.path.join(script_dir,x))
 
     def compile(self, filename):
@@ -538,6 +538,117 @@ class USBMap:
     def al(self, totext, addtext, indent = 0, itext = "    "):
         return totext + (itext*indent) + addtext + "\n"
 
+    def prompt_rename(self, ec_check):
+        # Provide rename data if needed
+        if not ec_check in [1,2,3]:
+            return
+        # Gather our rename vars
+        name = ["EC0_","H_EC","ECDV"][ec_check-1]
+        fhex = ["4543305f","485f4543","45434456"][ec_check-1]
+        fb64 = ["RUMwXw==","SF9FQw==","RUNEVg=="][ec_check-1]
+        # Print the rename info
+        print("")
+        print(self.rs+"The following is required for EC in config.plist -> ACPI -> Patches:"+self.ce)
+        print("")
+        print(self.bs+"Comment:"+self.cs+"  Rename {} to EC__".format(name)+self.ce)
+        print(self.rs+"Hex Values:"+self.ce)
+        print(self.bs+" - Find:"+self.cs+"  {}".format(fhex)+self.ce)
+        print(self.bs+" - Repl:"+self.cs+"  45435f5f"+self.ce)
+        print(self.rs+"Base64 Values:"+self.ce)
+        print(self.bs+" - Find:"+self.cs+"  {}".format(fb64)+self.ce)
+        print(self.bs+" - Repl:"+self.cs+"  RUNfXw=="+self.ce)
+        print("")
+        while True:
+            # Find out if we should auto-apply the rename
+            rename = self.u.grab("Apply automatically to booted EFI's config.plist? (y/n):  ")
+            if not len(rename):
+                continue
+            if rename[0].lower() == "n":
+                break
+            if rename[0].lower() == "y":
+                # Apply the rename
+                print("Applying {} to EC__ rename".format(name))
+                print(" - Locating EFI")
+                try:
+                    efi = self.k.get_efi(bdmesg.get_clover_uuid())
+                    is_mounted = self.k.is_mounted(efi)
+                    if is_mounted:
+                        print(" --> Found at {}".format(efi))
+                    else:
+                        print(" --> Found at {}, mounting".format(efi))
+                        out = self.k.mount_partition(efi)
+                except:
+                    # Failed to mount
+                    print(" --> Failed, aborting.")
+                    break
+                if not self.k.get_mount_point(efi):
+                    print(" --> Failed to mount, aborting.")
+                    break
+                # Locate the config.plist
+                print(" - Locating config.plist")
+                config = os.path.join(self.k.get_mount_point(efi), "EFI", "CLOVER", "config.plist")
+                if not os.path.exists(config):
+                    print(" --> Not found - aborting.")
+                    break
+                # Load the config
+                print(" --> Located - loading")
+                try:
+                    with open(config,"rb") as f:
+                        plist_data = plist.load(f)
+                except:
+                    print(" --> Failed to load, aborting.")
+                    break
+                # Add the value
+                print(" --> Validating config.plist -> ACPI -> Patches")
+                patches = plist_data.get("ACPI",{}).get("DSDT",{}).get("Patches",[])
+                found_patch = changes_made = False
+                if len(patches):
+                    print(" --> Checking for existing {} -> EC__ Rename".format(name))
+                    for x in patches:
+                        if not ("Find" in x and "Replace" in x):
+                            # Doesn't have all parts - avoid
+                            continue
+                        # Get the raw bytes if they exist
+                        if x["Find"] == name.encode("utf-8") and x["Replace"] == "EC__".encode("utf-8"):
+                            # Found a match
+                            print(" ----> Found match!")
+                            found_patch = True
+                            if x.get("Disabled",False):
+                                print(" ----> Enabling")
+                                x["Disabled"] = False
+                                changes_made = True
+                            else:
+                                print(" ----> Already enabled (may just need to reboot)")
+                if not found_patch:
+                    changes_made = True
+                    print(" --> Adding {} -> EC__ Rename".format(name))
+                    f = name.encode("utf-8") if sys.version_info >= (3, 0) else plistlib.Data(name.encode("utf-8"))
+                    r = "EC__".encode("utf-8") if sys.version_info >= (3, 0) else plistlib.Data("EC__".encode("utf-8"))
+                    plist_data["ACPI"]["DSDT"]["Patches"].append({
+                        "Comment" : "Rename {} to EC__".format(name),
+                        "Disabled" : False,
+                        "Find" : f,
+                        "Replace" : r
+                    })
+                if changes_made:
+                    print(" --> Writing plist")
+                    try:
+                        with open(config,"wb") as f:
+                            plist.dump(plist_data, f)
+                        print(" --> !! Reboot needed for changes to take effect !!")
+                    except:
+                        print(" --> Failed to write, aborting.")
+                        break
+                else:
+                    print(" --> No changes made to config.plist")
+                if not is_mounted:
+                    print(" --> Unmounting EFI")
+                    try:
+                        self.k.unmount_partition(efi)
+                    except:
+                        print(" --> Failed to unmount.")
+                break
+
     def build_ssdt(self, **kwargs):
         # Builds an SSDT-UIAC.dsl with the supplied info
         # Structure should be fairly easy - just need to supply info
@@ -560,10 +671,10 @@ class USBMap:
         self.u.resize(80, 24)
         self.u.head("Creating SSDT-UIAC")
         print("")
-        print("Loading plist...")
+        print("Loading plist")
         with open(self.plist, "rb") as f:
             p = plist.load(f)
-        print("Generating SSDT-UIAC.dsl...")
+        print("Generating SSDT-UIAC.dsl")
         dsl = """
 // SSDT-UIAC.dsl
 //
@@ -588,12 +699,12 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # EC checks - just in case
         # Add the EC device if we don't have one
         if check_ec in [True,None]:
-            print("Checking EC...")
+            print("Checking EC")
             # We're checking EC - get the return
             ec_check = 0 if check_ec == None else self.check_ec()
             if ec_check == 0:
                 # We failed some check, need to make the SSDT
-                print(" - EC SSDT required...")
+                print(" - EC SSDT required")
                 dsl += """
     // Inject Fake EC device
     Device(_SB.EC)
@@ -601,111 +712,12 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         Name(_HID, "EC000000")
     }
 """
+            elif ec_check == 4:
+                print(" - EC is properly setup")
             else:
-                print(" - EC SSDT not required...")
-            # Provide rename data if needed
-            if ec_check in [1,2,3]:
-                # Gather our rename vars
-                name = ["EC0_","H_EC","ECDV"][ec_check-1]
-                fhex = ["4543305f","485f4543","45434456"][ec_check-1]
-                fb64 = ["RUMwXw==","SF9FQw==","RUNEVg=="][ec_check-1]
-                # Print the rename info
-                print("")
-                print(self.rs+"The following is required for EC in config.plist -> ACPI -> Patches:"+self.ce)
-                print("")
-                print(self.bs+"Comment:"+self.cs+"  Rename {} to EC__".format(name)+self.ce)
-                print(self.rs+"Hex Values:"+self.ce)
-                print(self.bs+" - Find:"+self.cs+"  {}".format(fhex)+self.ce)
-                print(self.bs+" - Repl:"+self.cs+"  45435f5f"+self.ce)
-                print(self.rs+"Base64 Values:"+self.ce)
-                print(self.bs+" - Find:"+self.cs+"  {}".format(fb64)+self.ce)
-                print(self.bs+" - Repl:"+self.cs+"  RUNfXw=="+self.ce)
-                print("")
-                while True:
-                    # Find out if we should auto-apply the rename
-                    rename = self.u.grab("Apply automatically to booted EFI's config.plist? (y/n):  ")
-                    if not len(rename):
-                        continue
-                    if rename[0].lower() == "n":
-                        break
-                    if rename[0].lower() == "y":
-                        # Apply the rename
-                        print("Applying {} to EC__ rename...".format(name))
-                        print(" - Locating EFI...")
-                        try:
-                            efi = self.k.get_efi(bdmesg.get_clover_uuid())
-                            is_mounted = self.k.is_mounted(efi)
-                            if is_mounted:
-                                print(" --> Found at {}".format(efi))
-                            else:
-                                print(" --> Found at {}, mounting...".format(efi))
-                                out = self.k.mount_partition(efi)
-                        except:
-                            # Failed to mount
-                            print(" --> Failed, aborting.")
-                            break
-                        if not self.k.get_mount_point(efi):
-                            print(" --> Failed to mount, aborting.")
-                            break
-                        # Locate the config.plist
-                        print(" - Locating config.plist...")
-                        config = os.path.join(self.k.get_mount_point(efi), "EFI", "CLOVER", "config.plist")
-                        if not os.path.exists(config):
-                            print(" --> Not found - aborting.")
-                            break
-                        # Load the config
-                        print(" --> Located - loading...")
-                        try:
-                            with open(config,"rb") as f:
-                                plist_data = plist.load(f)
-                        except:
-                            print(" --> Failed to load, aborting.")
-                            break
-                        # Add the value
-                        print(" --> Validating config.plist -> ACPI -> Patches")
-                        patches = plist_data.get("ACPI",{}).get("DSDT",{}).get("Patches",[])
-                        found_patch = False
-                        if len(patches):
-                            print(" --> Checking for existing {} -> EC__ Rename...".format(name))
-                            for x in patches:
-                                if not ("Find" in x and "Replace" in x):
-                                    # Doesn't have all parts - avoid
-                                    continue
-                                # Get the raw bytes if they exist
-                                if x["Find"] == name.encode("utf-8") and x["Replace"] == "EC__".encode("utf-8"):
-                                    # Found a match
-                                    print(" ----> Found match!")
-                                    found_patch = True
-                                    if x.get("Disabled",False):
-                                        print(" ----> Enabling...")
-                                        x["Disabled"] = False
-                                    else:
-                                        print(" ----> Already enabled (may just need to reboot)")
-                        if not found_patch:
-                            print(" --> Adding {} -> EC__ Rename".format(name))
-                            f = name.encode("utf-8") if sys.version_info >= (3, 0) else plistlib.Data(name.encode("utf-8"))
-                            r = "EC__".encode("utf-8") if sys.version_info >= (3, 0) else plistlib.Data("EC__".encode("utf-8"))
-                            plist_data["ACPI"]["DSDT"]["Patches"].append({
-                                "Comment" : "Rename {} to EC__".format(name),
-                                "Disabled" : False,
-                                "Find" : f,
-                                "Replace" : r
-                            })
-                        print(" --> Writing plist...")
-                        try:
-                            with open(config,"wb") as f:
-                                plist.dump(plist_data, f)
-                            print(" --> !! Reboot needed for changes to take effect !!")
-                        except:
-                            print(" --> Failed to write, aborting.")
-                            break
-                        if not is_mounted:
-                            print(" --> Unmounting EFI...")
-                            try:
-                                self.k.unmount_partition(efi)
-                            except:
-                                print(" --> Failed to unmount.")
-                        break
+                print(" - EC SSDT not required, but EC requires rename")
+                # Provide rename data if needed
+                self.prompt_rename(ec_check)
                         
 
         ########################################################################
@@ -714,7 +726,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # Check for check_ux, ux_model in Info.plist, and uxm_data
         # if all three line up, then we need an AppleBusPowerController override
         if check_ux:
-            print("Checking USB power setup...")
+            print("Checking USBX requirements")
             # We're actively checking power - we need to check if our currently
             # selected model is in the IOUSBHostFamily.kext's Info.plist - and
             # if so, we need to pull that info *unless* we have uxm_data already
@@ -723,7 +735,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             # Let's see if our model is in here
             m = self.get_closest_smbios(usb_data, ux_model)
             if ux_model == m and not uxm_data:
-                print(" - Found {} in Info.plist - no overrides provided...".format(m))
+                print(" - Found {} in IOUSBHostFamily.kext".format(m))
+                print(" --> No user overrides provided")
                 dsl += """
     // USB Ports Mapped
     Device(UIAC)
@@ -733,7 +746,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         Name(RMCF, Package()
         {"""
             elif ux_model == m and uxm_data:
-                print(" - Found {} in Info.plist - but user overrides provided...".format(m))
+                print(" - Found {} in IOUSBHostFamily.kext".format(m))
+                print(" --> User overrides provided")
                 # Our model exists in the Info.plist - and we have an override!
                 # Add the header, and start off with this data
                 dsl += """
@@ -756,9 +770,11 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 dsl += "            },\n"
             elif ux_model != m:
                 if uxm_data:
-                    print(" - {} not found in Info.plist, but user overrides provided...".format(ux_model))
+                    print(" - {} not found in IOUSBHostFamily.kext".format(ux_model))
+                    print(" --> User overrides provided")
                 else:
-                    print(" - {} not found in Info.plist, using properties from {}...".format(ux_model, m))
+                    print(" - {} not found in IOUSBHostFamily.kext".format(ux_model))
+                    print(" --> Using properties from {}".format(m))
                     uxm_data = usb_data[m]["IOProviderMergeProperties"]
                 # Our model was not found in the Info.plist - add our own
                 # USBX device followed by the UIAC device
@@ -910,10 +926,10 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         dsl = self.al(dsl, "}")
         dsl = self.al(dsl, "//EOF")
         # Save the output - then try to compile it
-        print("Writitng SSDT-UIAC.dsl...")
+        print("Writitng SSDT-UIAC.dsl")
         with open("SSDT-UIAC.dsl", "w") as f:
             f.write(dsl)
-        print("Compiling SSDT-UIAC.dsl...")
+        print("Compiling SSDT-UIAC.dsl")
         # Try to compile
         out = self.compile("SSDT-UIAC.dsl")
         if not out:
@@ -924,14 +940,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             self.re.reveal(out)
         if len(excluded):
             # Create a text file with the boot arg
-            print("Writing Exclusion-Arg.txt...")
+            print("Writing Exclusion-Arg.txt")
             arg = "uia_exclude={}".format(",".join(excluded))
             with open("Exclusion-Arg.txt", "w") as f:
                 f.write(arg)
             print(" - Created Exclusion-Arg.txt!")
             
         print("")
-        self.u.grab("Press [enter] to return...")
+        self.u.grab("Press [enter] to return")
 
     def edit_plist(self):
         self.u.head("Edit USB.plist")
@@ -941,7 +957,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             print("Missing {}!".format(self.plist))
             print("Use the discovery mode to create one.")
             print("")
-            self.u.grab("Press [enter] to exit...")
+            self.u.grab("Press [enter] to exit")
             return
         # Load the plist
         try:
@@ -952,7 +968,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         if not p:
             print("Plist malformed or empty!")
             print("")
-            self.u.grab("Press [enter] to exit...")
+            self.u.grab("Press [enter] to exit")
             return
         # At this point, we have a working plist
         # let's serve up the options, and let the user adjust
@@ -1198,7 +1214,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             print("Was unable to locate any valid ports.")
             print("Please ensure you have XHC/EH01/EH02 in your IOReg")
             print("")
-            self.u.grab("Press [enter] to return...")
+            self.u.grab("Press [enter] to return")
             return
         # Auto select those that are populated
         for u in p:
@@ -1477,9 +1493,9 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         m = self.get_model()
         if usb_list == None:
             print(" - Failed to open IOUSBHostFamily.kext's Info.plist!")
-            print("Aborting...")
+            print("Aborting")
             print("")
-            self.u.grab("Press [enter] to return...")
+            self.u.grab("Press [enter] to return")
             return None
         model_list = sorted([x for x in usb_list if not x.startswith("AppleUSBHostResources")])
         pad = 10
@@ -1520,24 +1536,69 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 # Not a valid number
                 continue
 
+    def validate_power(self):
+        self.u.resize(80, 24)
+        self.u.head("Validating USB Power Settings")
+        print("")
+        print("Checking EC")
+        ec_check = self.check_ec()
+        ec_good = False
+        if ec_check == 0:
+            print(" - EC SSDT required")
+        elif ec_check == 4:
+            ec_good = True
+            print(" - EC is properly setup")
+        else:
+            print(" - EC SSDT not required, but EC requires rename")
+            self.prompt_rename(ec_check)
+
+        print("Checking USBX requirements")
+        usbx_good = False
+        usb_data = self.get_usb_info()
+        # Let's see if our model is in here
+        ux_model = self.get_model()
+        m = self.get_closest_smbios(usb_data, ux_model)
+        if ux_model == m:
+            print(" - Found {} in IOUSBHostFamily.kext - no USBX needed".format(m))
+            usbx_good = True
+        else:
+            print(" - {} not found in IOUSBHostFamily.kext - checking for USBX".format(ux_model))
+            usbx = self.r.run({"args":["ioreg", "-l", "-p", "IOACPIPlane", "-w0"]})[0].split("\n")
+            found = False
+            for line in usbx:
+                if "USBX" in line and "<class" in line:
+                    found = True
+                    usbx_good = True
+                    try:
+                        usbxaddr = ": " + line.split("+-o ")[1].split(" ")[0]
+                    except:
+                        usbxaddr = ""
+                    print(" --> USBX device found{}".format(usbxaddr))
+                    break
+            if not found:
+                print(" --> USBX device NOT found!")
+        print("")
+        print("EC Setup Properly:   {}{}{}".format(self.cs if ec_good else self.rs, ec_good, self.ce))
+        print("USBX Setup Properly: {}{}{}".format(self.cs if usbx_good else self.rs, usbx_good, self.ce))
+        print("")
+        self.u.grab("Press [enter] to return")
+
     def main(self):
         self.u.resize(80, 24)
         self.u.head("USBMap")
         print("")
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
         if os.path.exists(self.plist):
-            print("Plist: "+self.bs+"{}".format(self.plist)+self.ce)
+            print("Plist:          "+self.bs+"{}".format(self.plist)+self.ce)
         else:
-            print("Plist: "+self.rs+"None"+self.ce)
-        print("")
+            print("Plist:          "+self.rs+"None"+self.ce)
         args = self.get_uia_args()
         if len(args):
-            print("UIA Boot Args: "+self.cs+"{}".format(" ".join(args))+self.ce)
+            print("UIA Boot Args:  "+self.cs+"{}".format(" ".join(args))+self.ce)
         else:
-            print("UIA Boot Args: "+self.rs+"None"+self.ce)
-        print("")
+            print("UIA Boot Args:  "+self.rs+"None"+self.ce)
         uia_version = self.check_uia()
-        uia_text = "USBInjectAll "
+        uia_text = "USBInjectAll:   "
         if not uia_version:
             # Not loaded
             uia_text += self.rs+"Not Loaded - NVRAM boot-args WILL NOT WORK"+self.ce
@@ -1551,12 +1612,11 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 # Equal to, or higher than the min version
                 uia_text += self.cs+"v{} Loaded".format(uia_version)+self.ce
         print(uia_text)
-        print("")
         aptio_loaded = self.bs+"Unknown"+self.ce
         aptio = next((x for x in bdmesg.bdmesg().split("\n") if "aptiomemoryfix" in x.lower()), None)
         if aptio:
             aptio_loaded = self.cs+"Loaded"+self.ce if "success" in aptio.lower() else self.rs+"Not Loaded"+self.ce
-        print("AptioMemoryFix {}{}".format(aptio_loaded, "" if not "Not Loaded" in aptio_loaded else self.rs+" - NVRAM boot-args MAY NOT WORK."+self.ce))
+        print("AptioMemoryFix: {}{}".format(aptio_loaded, "" if not "Not Loaded" in aptio_loaded else self.rs+" - NVRAM boot-args MAY NOT WORK."+self.ce))
         print("")
         print("NVRAM Arg Options:")
         if os.path.exists("Exclusion-Arg.txt"):
@@ -1568,6 +1628,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         print("R.  Remove Plist")
         print("P.  Edit Plist & Create SSDT/Kext")
         print("D.  Discover Ports")
+        print("U.  Validate USB Power Settings")
         print("Q.  Quit")
         print("")
         menu = self.u.grab("Please select an option:  ")
@@ -1599,6 +1660,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         elif menu.lower() == "r":
             if os.path.exists(self.plist):
                 os.unlink(self.plist)
+        elif menu.lower() == "u":
+            self.validate_power()
         elif menu.lower() == "p":
             self.edit_plist()
         elif menu.lower() == "e" and os.path.exists("Exclusion-Arg.txt"):
