@@ -321,7 +321,7 @@ class USBMap:
                 if len(new[port]["items"]):
                     extras += len(new[port]["items"])
                     # print("\n".join(["     - {}".format(x.encode("utf-8")) for x in new[port]["items"]]))
-                    print("\n".join([x.encode("utf-8") for x in new[port]["items"]]))
+                    print("\n".join([x.encode("utf-8") if not type(x) is str else x for x in new[port]["items"]]))
             seltext = []
             print("")
             for x in sel:
@@ -604,17 +604,16 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             else:
                 print(" - EC SSDT not required...")
             # Provide rename data if needed
-            ec_check = 3
             if ec_check in [1,2,3]:
                 # Gather our rename vars
-                name = ["EC0","H_EC","ECDV"][ec_check-1]
+                name = ["EC0_","H_EC","ECDV"][ec_check-1]
                 fhex = ["4543305f","485f4543","45434456"][ec_check-1]
                 fb64 = ["RUMwXw==","SF9FQw==","RUNEVg=="][ec_check-1]
                 # Print the rename info
                 print("")
                 print(self.rs+"The following is required for EC in config.plist -> ACPI -> Patches:"+self.ce)
                 print("")
-                print(self.bs+"Comment:"+self.cs+"  Rename {} to EC".format(name)+self.ce)
+                print(self.bs+"Comment:"+self.cs+"  Rename {} to EC__".format(name)+self.ce)
                 print(self.rs+"Hex Values:"+self.ce)
                 print(self.bs+" - Find:"+self.cs+"  {}".format(fhex)+self.ce)
                 print(self.bs+" - Repl:"+self.cs+"  45435f5f"+self.ce)
@@ -624,14 +623,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 print("")
                 while True:
                     # Find out if we should auto-apply the rename
-                    rename = self.u.grab("Apply automatically? (y/n):  ")
+                    rename = self.u.grab("Apply automatically to booted EFI's config.plist? (y/n):  ")
                     if not len(rename):
                         continue
                     if rename[0].lower() == "n":
                         break
                     if rename[0].lower() == "y":
                         # Apply the rename
-                        print("Applying {} to EC rename...".format(name))
+                        print("Applying {} to EC__ rename...".format(name))
                         print(" - Locating EFI...")
                         try:
                             efi = self.k.get_efi(bdmesg.get_clover_uuid())
@@ -664,23 +663,39 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                             break
                         # Add the value
                         print(" --> Validating config.plist -> ACPI -> Patches")
-                        if not "ACPI" in plist_data:
-                            plist_data["ACPI"] = {}
-                        if not "DSDT" in plist_data["ACPI"]:
-                            plist_data["ACPI"]["DSDT"] = {}
-                        if not "Patches" in plist_data["ACPI"]["DSDT"]:
-                            plist_data["ACPI"]["DSDT"]["Patches"] = []
-                        print(" --> Adding {} -> EC Rename".format(name))
-                        plist_data["ACPI"]["DSDT"]["Patches"].append({
-                            "Comment" : "Rename {} to EC".format(name),
-                            "Disabled" : False,
-                            "Find" : plistlib.Data(name.decode("utf-8")),
-                            "Replace" : plistlib.Data("EC__".decode("utf-8"))
-                        })
+                        patches = plist_data.get("ACPI",{}).get("DSDT",{}).get("Patches",[])
+                        found_patch = False
+                        if len(patches):
+                            print(" --> Checking for existing {} -> EC Rename...".format(name))
+                            for x in patches:
+                                if not ("Find" in x and "Replace" in x):
+                                    # Doesn't have all parts - avoid
+                                    continue
+                                # Get the raw bytes if they exist
+                                if x["Find"] == name.encode("utf-8") and x["Replace"] == "EC__".encode("utf-8"):
+                                    # Found a match
+                                    print(" ----> Found match!")
+                                    found_patch = True
+                                    if x["Disabled"]:
+                                        print(" ----> Enabling...")
+                                        x["Disabled"] = False
+                                    else:
+                                        print(" ----> Already enabled (may just need to reboot)")
+                        if not found_patch:
+                            print(" --> Adding {} -> EC__ Rename".format(name))
+                            f = name.encode("utf-8") if sys.version_info >= (3, 0) else plistlib.Data(name.encode("utf-8"))
+                            r = "EC__".encode("utf-8") if sys.version_info >= (3, 0) else plistlib.Data("EC__".encode("utf-8"))
+                            plist_data["ACPI"]["DSDT"]["Patches"].append({
+                                "Comment" : "Rename {} to EC__".format(name),
+                                "Disabled" : False,
+                                "Find" : f,
+                                "Replace" : r
+                            })
                         print(" --> Writing plist...")
                         try:
                             with open(config,"wb") as f:
                                 plist.dump(plist_data, f)
+                            print(" --> !! Reboot needed for changes to take effect !!")
                         except:
                             print(" --> Failed to write, aborting.")
                             break
@@ -991,7 +1006,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 if len(p[u]["items"]):
                     extras += len(p[u]["items"])
                     # print("\n".join(["     - {}".format(x.encode("utf-8")) for x in p[u]["items"]]))
-                    print("\n".join([x.encode("utf-8") for x in p[u]["items"]]))
+                    print("\n".join([x.encode("utf-8") if not type(x) is str else x for x in p[u]["items"]]))
             print("")
             seltext = []
             for x in sel:
@@ -1211,7 +1226,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 if len(p[u]["items"]):
                     extras += len(p[u]["items"])
                     # print("\n".join(["     - {}".format(x.encode("utf-8")) for x in p[u]["items"]]))
-                    print("\n".join([x.encode("utf-8") for x in p[u]["items"]]))
+                    print("\n".join([x.encode("utf-8") if not type(x) is str else x for x in p[u]["items"]]))
             print("")
             if sel < 1 or sel > 2:
                 ptext = "{}Selected: {}{}".format(self.rs, sel, self.ce)
