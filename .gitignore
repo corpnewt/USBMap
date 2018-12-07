@@ -6,6 +6,15 @@ __pycache__/
 # C extensions
 *.so
 
+# Ignore extras
+*.txt
+*.plist
+*.dsl
+*.aml
+
+# Ignore iasl
+iasl
+
 # Distribution / packaging
 .Python
 build/
