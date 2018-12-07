@@ -19,6 +19,12 @@ class Disk:
         self.apfs = {}
         self._update_disks()
 
+    def _get_str(self, val):
+        # Helper method to return a string value based on input type
+        if (sys.version_info < (3,0) and isinstance(val, (str, unicode))) or (sys.version_info >= (3,0) and isinstance(val, str)):
+            return val
+        return str(val)
+
     def _get_plist(self, s):
         p = {}
         try:
@@ -181,7 +187,7 @@ class Disk:
         # Should be able to take a mount point, disk name, or disk identifier,
         # and return the disk's identifier
         # Iterate!!
-        if not disk or not len(str(disk)):
+        if not disk or not len(self._get_str(disk)):
             return None
         disk = disk.lower()
         if disk.startswith("/dev/r"):

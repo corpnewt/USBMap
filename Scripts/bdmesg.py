@@ -1,4 +1,4 @@
-import binascii, subprocess
+import binascii, subprocess, sys
 
 def get_clover_uuid():
     bd = bdmesg()
@@ -30,7 +30,9 @@ def _bdmesg(comm):
     # Runs ioreg -l -p IODeviceTree -w0 and searches for "boot-log"
     p = subprocess.Popen(comm, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     bd, be = p.communicate()
-    for line in bd.decode("utf-8").split("\n"):
+    if sys.version_info >= (3,0) and isinstance(bd, bytes):
+        bd = bd.decode("utf-8","ignore")
+    for line in bd.split("\n"):
         # We're just looking for the "boot-log" property, then we need to format it
         if not '"boot-log"' in line:
             # Skip it!
