@@ -313,6 +313,7 @@ class USBMap:
                 sel[c]["total"] += 1
                 ptext = "{}. {} - Port {} - Type {} - Controller {}".format(count, n, hex(p), t, c)
                 if port == last_added:
+                    sel[c]["selected"] += 1
                     ptext = self.cs + ptext + self.ce
                 elif s:
                     sel[c]["selected"] += 1
