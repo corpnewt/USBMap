@@ -910,18 +910,23 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_USBX", 0)
             except:
                 pass
 
+        log = "" # Keep trac of our progress in case we interrupt this menu
         self.u.resize(80, 24)
-        self.u.head("Creating SSDT-UIAC")
+        self.u.head("Creating SSDTs")
         print("")
         if self.sep_ssdt:
             print("!! Creating separate SSDTs as needed !!")
+            log += "\n!! Creating separate SSDTs as needed !!\n"
         else:
             print("!! All SSDT data will go into SSDT-UIAC !!")
+            log += "\n!! All SSDT data will go into SSDT-UIAC !!\n"
         print("")
         print("Loading plist")
+        log += "\nLoading plist\n"
         with open(self.plist, "rb") as f:
             p = plist.load(f)
         print("Generating SSDT-UIAC.dsl")
+        log += "Generating SSDT-UIAC.dsl\n"
         dsl = """
 // SSDT-UIAC.dsl
 //
@@ -947,11 +952,13 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # Add the EC device if we don't have one
         if check_ec in [True,None]:
             print("Checking EC")
+            log += "Checking EC\n"
             # We're checking EC - get the return
             ec_check = 0 if check_ec == None else self.check_ec()
             if ec_check == 0:
                 # We failed some check, need to make the SSDT
                 print(" - EC SSDT required")
+                log += " - EC SSDT required\n"
                 if self.sep_ssdt:
                     self.build_ec_ssdt()
                 else:
@@ -964,8 +971,10 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
 """
             elif ec_check == 4:
                 print(" - EC is properly setup")
+                log += " - EC is properly setup\n"
             else:
                 print(" - EC SSDT not required, but EC requires rename")
+                log += " - EC SSDT not required, but EC requires rename\n"
                 # Provide rename data if needed
                 self.prompt_rename(ec_check)
                         
@@ -977,6 +986,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # if all three line up, then we need an AppleBusPowerController override
         if check_ux:
             print("Checking USBX requirements")
+            log += "Checking USBX requirements"
             # We're actively checking power - we need to check if our currently
             # selected model is in the IOUSBHostFamily.kext's Info.plist - and
             # if so, we need to pull that info *unless* we have uxm_data already
@@ -984,6 +994,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             usb_data = self.get_usb_info()
             # Let's see if our model is in here
             m = self.get_closest_smbios(usb_data, ux_model)
+            if not m:
+                m = self.user_pick_smbios(True, False)
+                # Re-display the logs
+                self.u.head("Creating SSDTs")
+                print(log)
+            if not m:
+                # We somehow bailed or quit or something
+                return
             if ux_model == m and not uxm_data:
                 print(" - Found {} in IOUSBHostFamily.kext".format(m))
                 print(" --> No user overrides provided")
@@ -1208,7 +1226,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             with open("Exclusion-Arg.txt", "w") as f:
                 f.write(arg)
             print(" - Created Exclusion-Arg.txt!")
-        
+        print("")
         # Gather the resulting SSDTs and ask the user if they'd like them installed
         self.prompt_install_ssdt()
         print("")
@@ -1795,7 +1813,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # Return newest - it will be None if no match is found
         return newest
 
-    def user_pick_smbios(self, close=True):
+    def user_pick_smbios(self, close=True, allow_return=True):
         # Didn't find a match - have the user pick from the list
         usb_list = self.get_usb_info()
         m = self.get_model()
@@ -1825,19 +1843,21 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 count +=1 
                 print("{}. {}".format(count, x))
             print("")
-            print("M. Return to previous menu")
+            if allow_return:
+                print("M. Return to previous menu")
             print("Q. Quit")
             print("")
             menu = self.u.grab("Please select an option:  ")
             if not len(menu):
                 continue
-            if menu.lower() == "m":
+            if menu.lower() == "m" and allow_return:
                 return None
             elif menu.lower() == "q":
                 self.u.resize(80,24)
                 self.u.custom_quit()
             # attempt to select from the list
             try:
+                self.u.resize(80,24)
                 u = int(menu)
                 return model_list[u-1]
             except:
@@ -1845,27 +1865,33 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 continue
 
     def validate_power(self, display = True):
+        log = ""
         if display:
             self.u.resize(80, 24)
             self.u.head("Validating USB Power Settings")
             print("")
         print("Checking EC")
+        log += "Checking EC\n"
         ec_check = self.check_ec()
         ec_good = False
         ssdts = []
         if ec_check == 0:
             print(" - EC SSDT required")
+            log += " - EC SSDT required\n"
             out = self.build_ec_ssdt()
             if out:
                 ssdts.append(os.path.basename(out))
         elif ec_check == 4:
             ec_good = True
             print(" - EC is properly setup")
+            log += " - EC is properly setup\n"
         else:
             print(" - EC SSDT not required, but EC requires rename")
+            log += " - EC SSDT not required, but EC requires rename\n"
             self.prompt_rename(ec_check)
 
         print("Checking USBX requirements")
+        log += "Checking USBX requirements\n"
         usbx_good = False
         usb_data = self.get_usb_info()
         # Let's see if our model is in here
@@ -1876,6 +1902,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             usbx_good = True
         else:
             print(" - {} not found in IOUSBHostFamily.kext - checking for USBX".format(ux_model))
+            log += " - {} not found in IOUSBHostFamily.kext - checking for USBX".format(ux_model)
             usbx = self.r.run({"args":["ioreg", "-l", "-p", "IOACPIPlane", "-w0"]})[0].split("\n")
             found = False
             for line in usbx:
@@ -1896,6 +1923,15 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     uxm_data = self.settings["usb_overrides"]
                     from_text = "were user-provided"
                 else:
+                    if not m:
+                        m = self.user_pick_smbios(True, False)
+                        if display:
+                            self.u.head("Validating USB Power Settings")
+                            print("")
+                        print(log)
+                    if not m:
+                        # We failed somewhere
+                        return []
                     print(" ---> {} not found in IOUSBHostFamily.kext".format(ux_model))
                     print(" ------> Using properties from {}".format(m))
                     usb_data = self.get_usb_info()
