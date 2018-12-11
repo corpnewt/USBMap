@@ -1527,8 +1527,12 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         while True:
             self.u.head("Select Keyboard And Mouse")
             print("")
+            print("Please adjust the following selections to reflect only your keyboard")
+            print("and mouse.  This is to prevent them being excluded on reboot (or else")
+            print("they wouldn't work).  You can select none if your kb/mouse are not USB.")
+            print("")
             count  = 0
-            pad    = 16
+            pad    = 20
             extras = 0
             sel    = 0
             for u in self.sort(p):
@@ -1957,7 +1961,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         print("  S. Exclude SSxx Ports ("+self.bs+"-uia_exclude_ss"+self.ce+")")
         print("  C. Clear Exclusions")
         print("")
-        print("R.  Remove Plist")
+        print("R.  Remove USB.plist from Scripts Folder")
         print("T.  Reset Settings to Defaults")
         print("P.  Edit Plist & Create SSDT/Kext")
         print("D.  Discover Ports")
