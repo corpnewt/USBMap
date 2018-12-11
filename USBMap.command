@@ -14,17 +14,20 @@ class USBMap:
         self.ec = True # True = yes, False = no, None = force fake
         self.usbx = True # True = yes, False = no, a string with a model number will pull that data from Info.plist
         self.usb_overrides = {} # Dict of key/value pairs for power overrides
+        self.sep_ssdt = True # True = separate EC/USBX/UIAC SSDTs, False = All in one SSDT
         self.scripts = "Scripts"
+        self.output  = "Results"
         self.usb_re = re.compile("(SS|SSP|HS|HP|PR|USR)[a-fA-F0-9]{1,2}@[a-fA-F0-9]{1,}")
         self.usb_dict = {}
         self.xch_devid = self.get_xhc_devid()
         self.min_uia_v = "0.7.0"
-        self.plist = "usb.plist"
+        self.plist = "./Scripts/USB.plist"
         self.disc_wait = 5
         self.cs = u"\u001b[32;1m"
         self.ce = u"\u001b[0m"
         self.bs = u"\u001b[36;1m"
         self.rs = u"\u001b[31;1m"
+        self.nm = u"\u001b[35;1m"
         # Following values from RehabMan's USBInjectAll.kext:
         # https://github.com/RehabMan/OS-X-USB-Inject-All/blob/master/USBInjectAll/USBInjectAll-Info.plist
         self.usb_plist = { 
@@ -243,6 +246,19 @@ class USBMap:
         # Let's enter discovery mode
         # Establish a baseline
         original = self.get_by_port()
+        # Get names too
+        try:
+            with open(self.plist, "rb") as f:
+                p = plist.load(f)
+        except:
+            p = None
+        if p:
+            for port in p:
+                if not port in original:
+                    # not available right now - skip
+                    continue
+                if p[port].get("name",None):
+                    original[port]["name"] = p[port]["name"]
         if not len(original):
             self.u.head("Something's Not Right")
             print("")
@@ -300,6 +316,8 @@ class USBMap:
                 if len(new[port]["items"]) > len(last[port]["items"]):
                     # New item in this run
                     last_added = port
+                    # Make sure we have an extra line for the rename info
+                    extras += 1
                 # Merge missing items if need be
                 original[port]["items"].extend(missing_items)
                 # Print out the port
@@ -311,7 +329,7 @@ class USBMap:
                 if c in ["EH01-internal-hub","EH02-internal-hub"]:
                     c = "HUB"+c[3]
                 sel[c]["total"] += 1
-                ptext = "{}. {} - Port {} - Type {} - Controller {}".format(count, n, hex(p), t, c)
+                ptext = "{}. {} - Type {} - Controller {}".format(count, n, t, c)
                 if port == last_added:
                     sel[c]["selected"] += 1
                     ptext = self.cs + ptext + self.ce
@@ -319,6 +337,9 @@ class USBMap:
                     sel[c]["selected"] += 1
                     ptext = self.bs + ptext + self.ce
                 print(ptext)
+                if original[port].get("name",None):
+                    extras += 1
+                    print("    {}{}{}".format(self.nm, original[port]["name"], self.ce))
                 if len(new[port]["items"]):
                     extras += len(new[port]["items"])
                     # print("\n".join(["     - {}".format(x.encode("utf-8")) for x in new[port]["items"]]))
@@ -336,14 +357,51 @@ class USBMap:
             print(ptext)
             h = count+extras+pad if count+extras+pad > 24 else 24
             self.u.resize(80, h)
-            print("Press Q and [enter] to stop")
+            print("Press Q then [enter] to stop")
+            if last_added:
+                print("Press N then [enter] to add a custom name to {}".format(last_added))
             print("")
             out = self.u.grab("Waiting {} seconds:  ".format(self.disc_wait), timeout=self.disc_wait)
             if not out or not len(out):
                 continue
             if out.lower() == "q":
                 break
+            elif out.lower() == "n":
+                # We're going to name the last selected port
+                if not last_added:
+                    # Nothing to name - keep going
+                    continue
+                out = self.get_name(original,last_added)
+                if out:
+                    # We got a name - set it
+                    original[last_added]["name"] = out
+                elif out == None:
+                    # We need to clear the name
+                    del original[last_added]["name"]
         return original
+
+    def get_name(self, ports, port_name):
+        self.u.resize(80, 24)
+        self.u.head("Custom Name for {}".format(port_name))
+        print("")
+        print("Current Custom Name:\n\n    {}\n".format(ports[port_name].get("name","None")))
+        if len(ports[port_name]["items"]):
+            print("Items:\n\n{}".format("\n".join([x.encode("utf-8") if not type(x) is str else x for x in ports[port_name]["items"]])))
+        else:
+            print("Items:\n\n    None")
+        print("")
+        print("C. Clear Custom Name")
+        print("R. Return to Discovery")
+        print("")
+        menu = self.u.grab("Please type a name for {}:  ".format(port_name))
+        if not len(menu):
+            return self.get_name(ports, port_name)
+        if menu.lower() == "c":
+            return None
+        elif menu.lower() == "r":
+            return False
+        # Got something
+        return menu
 
     def print_types(self):
         self.u.resize(80, 24)
@@ -650,6 +708,162 @@ class USBMap:
                         print(" --> Failed to unmount.")
                 break
 
+    def prompt_install_ssdt(self, ssdts = []):
+        # Gather the .aml files in our output folder - only if not provided
+        if not len(ssdts):
+            ssdts = []
+            for f in os.listdir(self.output):
+                if f.lower().endswith(".aml"):
+                    ssdts.append(f)
+        if not len(ssdts):
+            # Nothing to do
+            return
+        print("")
+        print(self.bs+"Created the following SSDT{}:".format("" if len(ssdts) == 1 else "s")+self.ce)
+        print("")
+        print("\n".join(ssdts))
+        print("")
+        while True:
+            # Find out if we should auto-apply the rename
+            apply = self.u.grab("Copy automatically to booted EFI? (y/n):  ")
+            if not len(apply):
+                continue
+            if apply[0].lower() == "n":
+                break
+            if not apply[0].lower() == "y":
+                continue
+            # We should be able to apply now
+            print("Locating EFI")
+            try:
+                efi = self.k.get_efi(bdmesg.get_clover_uuid())
+                is_mounted = self.k.is_mounted(efi)
+                if is_mounted:
+                    print(" - Found at {}".format(efi))
+                else:
+                    print(" - Found at {}, mounting".format(efi))
+                    out = self.k.mount_partition(efi)
+            except:
+                # Failed to mount
+                print(" - Failed, aborting.")
+                break
+            if not self.k.get_mount_point(efi):
+                print(" - Failed to mount, aborting.")
+                break
+            # Locate the config.plist
+            print("Locating patched folder")
+            patched = os.path.join(self.k.get_mount_point(efi), "EFI", "CLOVER", "ACPI", "patched")
+            if not os.path.exists(patched):
+                print(" - Not found - aborting.")
+                break
+            # Iterate and copy
+            print(" - Copying SSDTs")
+            for s in ssdts:
+                print(" --> {}".format(s))
+                if os.path.exists(os.path.join(patched, s)):
+                    print(" ----> Already exists, removing")
+                    try:
+                        os.remove(os.path.join(patched,s))
+                    except:
+                        pass
+                print(" ----> Copying")
+                try:
+                    shutil.copy("./{}/{}".format(self.output, s), os.path.join(patched,s))
+                except:
+                    print(" ------> Failed to copy!")
+            if not is_mounted:
+                print(" - Unmounting EFI")
+                try:
+                    self.k.unmount_partition(efi)
+                except:
+                    print(" --> Failed to unmount.")
+            break
+
+    def build_ec_ssdt(self):
+        # Once we've validated that we need this, we can auto-build it
+        dsl = """
+// SSDT-EC.dsl
+//
+// Injects a fake EC device
+//
+// Formatting credits: RehabMan - https://github.com/RehabMan/Intel-NUC-DSDT-Patch/blob/master/SSDT-EC.dsl
+//
+
+DefinitionBlock ("", "SSDT", 2, "hack", "_EC", 0)
+{
+    // Inject Fake EC device
+    Device(_SB.EC)
+    {
+        Name(_HID, "EC000000")
+    }
+}
+"""
+        # Ensure our Results folder exists
+        if not os.path.exists(self.output):
+            os.mkdir(self.output)
+        # Create the SSDT
+        print("Writitng SSDT-EC.dsl")
+        with open("./{}/SSDT-EC.dsl".format(self.output), "w") as f:
+            f.write(dsl)
+        print("Compiling SSDT-EC.dsl")
+        # Try to compile
+        out = self.compile("./{}/SSDT-EC.dsl".format(self.output))
+        if not out:
+            print(" - Created SSDT-EC.dsl - but could not compile!")
+        else:
+            print(" - Created SSDT-EC.aml!")
+            return out
+        return None
+
+    def build_usbx_ssdt(self, uxm_data, m):
+        # Once we know that we need the USBX ssdt - we can auto-build
+        dsl = """
+// SSDT-USBX.dsl
+//
+// USB Power Properties for Sierra+
+//
+// Formatting credits: RehabMan - https://github.com/RehabMan/Intel-NUC-DSDT-Patch/blob/master/SSDT-USBX.dsl
+//
+
+DefinitionBlock ("", "SSDT", 2, "hack", "_USBX", 0)
+{
+    // USB power properties via USBX device
+    Device(_SB.USBX)
+    {
+        Name(_ADR, 0)
+        Method (_DSM, 4)
+        {
+            If (!Arg2) { Return (Buffer() { 0x03 } ) }
+            Return (Package()
+            {
+                // these values """ + m + "\n"
+        for x in uxm_data:
+            v = uxm_data[x]
+            print(" -- {} --> {}".format(x, v))
+            dsl += '                "{}", {},\n'.format(x, v)
+        # Add the footer
+        dsl += """
+            })
+        }
+    }
+}
+"""
+        # Ensure our Results folder exists
+        if not os.path.exists(self.output):
+            os.mkdir(self.output)
+        # Create the SSDT
+        print("Writitng SSDT-USBX.dsl")
+        with open("./{}/SSDT-USBX.dsl".format(self.output), "w") as f:
+            f.write(dsl)
+        print("Compiling SSDT-USBX.dsl")
+        # Try to compile
+        out = self.compile("./{}/SSDT-USBX.dsl".format(self.output))
+        if not out:
+            print(" - Created SSDT-USBX.dsl - but could not compile!")
+        else:
+            print(" - Created SSDT-USBX.aml!")
+            return out
+        return None
+
     def build_ssdt(self, **kwargs):
         # Builds an SSDT-UIAC.dsl with the supplied info
         # Structure should be fairly easy - just need to supply info
@@ -669,8 +883,23 @@ class USBMap:
         ux_model = kwargs.get("ux_model", self.get_model()) # USBX Model selected, if any - to check for presence in Info.plist - should be provided
         uxm_data = kwargs.get("uxm_data",None)  # Dict of data to override with - or None for no override
 
+        # Ensure our Results folder exists
+        if not os.path.exists(self.output):
+            os.mkdir(self.output)
+        # Clear out everything in that folder
+        for f in os.listdir(self.output):
+            try:
+                os.remove("./{}/{}".format(self.output, f))
+            except:
+                pass
+
         self.u.resize(80, 24)
         self.u.head("Creating SSDT-UIAC")
+        print("")
+        if self.sep_ssdt:
+            print("!! Creating separate SSDTs as needed !!")
+        else:
+            print("!! All SSDT data will go into SSDT-UIAC !!")
         print("")
         print("Loading plist")
         with open(self.plist, "rb") as f:
@@ -706,7 +935,10 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             if ec_check == 0:
                 # We failed some check, need to make the SSDT
                 print(" - EC SSDT required")
-                dsl += """
+                if self.sep_ssdt:
+                    self.build_ec_ssdt()
+                else:
+                    dsl += """
     // Inject Fake EC device
     Device(_SB.EC)
     {
@@ -745,7 +977,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         Name(_HID, "UIA00000")
     
         Name(RMCF, Package()
-        {"""
+        {
+"""
             elif ux_model == m and uxm_data:
                 print(" - Found {} in IOUSBHostFamily.kext".format(m))
                 print(" --> User overrides provided")
@@ -773,13 +1006,27 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 if uxm_data:
                     print(" - {} not found in IOUSBHostFamily.kext".format(ux_model))
                     print(" --> User overrides provided")
+                    from_text = "were user-provided"
                 else:
                     print(" - {} not found in IOUSBHostFamily.kext".format(ux_model))
                     print(" --> Using properties from {}".format(m))
                     uxm_data = usb_data[m]["IOProviderMergeProperties"]
+                    from_text = "from "+m
                 # Our model was not found in the Info.plist - add our own
                 # USBX device followed by the UIAC device
-                dsl += """
+                if self.sep_ssdt:
+                    self.build_usbx_ssdt(uxm_data, from_text)
+                    dsl += """
+    // USB Ports Mapped
+    Device(UIAC)
+    {
+        Name(_HID, "UIA00000")
+    
+        Name(RMCF, Package()
+        {
+"""
+                else:
+                    dsl += """
     // USB power properties via USBX device
     Device(_SB.USBX)
     {
@@ -789,13 +1036,13 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             If (!Arg2) { Return (Buffer() { 0x03 } ) }
             Return (Package()
             {
-                // these values from """ + m + "\n"
-                for x in uxm_data:
-                    v = uxm_data[x]
-                    print(" -- {} --> {}".format(x, v))
-                    dsl += '                "{}", {},\n'.format(x, v)
-                # Add the footer
-                dsl += """
+                // these values """ + from_text + "\n"
+                    for x in uxm_data:
+                        v = uxm_data[x]
+                        print(" -- {} --> {}".format(x, v))
+                        dsl += '                "{}", {},\n'.format(x, v)
+                    # Add the footer
+                    dsl += """
             })
         }
     }
@@ -928,14 +1175,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         dsl = self.al(dsl, "//EOF")
         # Save the output - then try to compile it
         print("Writitng SSDT-UIAC.dsl")
-        with open("SSDT-UIAC.dsl", "w") as f:
+        with open("./{}/SSDT-UIAC.dsl".format(self.output), "w") as f:
             f.write(dsl)
         print("Compiling SSDT-UIAC.dsl")
         # Try to compile
-        out = self.compile("SSDT-UIAC.dsl")
+        out = self.compile("./{}/SSDT-UIAC.dsl".format(self.output))
         if not out:
             print(" - Created SSDT-UIAC.dsl - but could not compile!")
-            self.re.reveal("SSDT-UIAC.dsl")
+            self.re.reveal("./{}/SSDT-UIAC.dsl".format(self.output))
         else:
             print(" - Created SSDT-UIAC.aml!")
             self.re.reveal(out)
@@ -946,7 +1193,9 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             with open("Exclusion-Arg.txt", "w") as f:
                 f.write(arg)
             print(" - Created Exclusion-Arg.txt!")
-            
+        
+        # Gather the resulting SSDTs and ask the user if they'd like them installed
+        self.prompt_install_ssdt()
         print("")
         self.u.grab("Press [enter] to return")
 
@@ -978,7 +1227,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             self.u.head("Edit USB.plist")
             print("")
             count  = 0
-            pad    = 26
+            pad    = 29
             extras = 0
             #sel    = 0
             sel    = {
@@ -1020,6 +1269,9 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     #sel += 1
                     ptext = self.bs + ptext + self.ce
                 print(ptext)
+                if p[u].get("name",None):
+                    extras += 1
+                    print("    {}{}{}".format(self.nm, p[u]["name"], self.ce))
                 if len(p[u]["items"]):
                     extras += len(p[u]["items"])
                     # print("\n".join(["     - {}".format(x.encode("utf-8")) for x in p[u]["items"]]))
@@ -1051,9 +1303,11 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 usbx = self.rs+"No"+self.ce if self.usbx == False else self.cs+"Yes"+self.ce
             print("Check EC:    {}".format(ec))
             print("Check USBX:  {}".format(usbx))
+            print("One SSDT:    {}".format(self.cs+"No - Separate SSDT-EC, SSDT-USBX, and SSDT-UIAC"+self.ce if self.sep_ssdt else self.bs+"Yes - Joined EC and USBX inside SSDT-UIAC"+self.ce))
             print("")
             print("E. Toggle EC (Yes, No, Force)")
             print("U. Toggle USBX (Yes, No){}".format(" - Removes Overrides!" if len(self.usb_overrides) else ""))
+            print("D. Toggle One SSDT")
             print("O. Set USB Overrides")
             print("")
             print("M. Main Menu")
@@ -1066,6 +1320,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             print("")
             print("Select ports to toggle with comma-delimited lists (eg. 1,2,3,4,5)")
             print("Change types using this formula T:1,2,3,4,5:t where t is the type")
+            print("Set custom names using this formula C:1:Name - Name = None to clear")
             print("")
             menu = self.u.grab("Please make your selection:  ")
             if not len(menu):
@@ -1091,6 +1346,9 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     self.usbx = False
                 else:
                     self.usbx = True
+                continue
+            elif menu.lower() == "d":
+                self.sep_ssdt ^= True
                 continue
             elif menu.lower() == "o":
                 self.get_overrides()
@@ -1136,6 +1394,25 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                         p[self.sort(p)[x-1]]["type"] = t
                 except:
                     # Didn't work - something didn't work - bail
+                    pass
+            elif menu[0].lower() == "c":
+                # We should have a new name
+                try:
+                    nums = [int(x) for x in menu.split(":")[1].replace(" ","").split(",")]
+                    name = menu.split(":")[-1]
+                    for x in nums:
+                        if x < 1 or x > len(p):
+                            # Out of bounds - skip
+                            continue
+                        # Valid index
+                        if name.lower() == "none" and p[self.sort(p)[x-1]].get("name",None):
+                            # Has a name, and we want to remove it
+                            del p[self.sort(p)[x-1]]["name"]
+                        else:
+                            # Adding a name
+                            p[self.sort(p)[x-1]]["name"] = name
+                except:
+                    # Didn't work
                     pass
             else:
                 # Maybe a list of numbers?
@@ -1544,8 +1821,12 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         print("Checking EC")
         ec_check = self.check_ec()
         ec_good = False
+        ssdts = []
         if ec_check == 0:
             print(" - EC SSDT required")
+            out = self.build_ec_ssdt()
+            if out:
+                ssdts.append(os.path.basename(out))
         elif ec_check == 4:
             ec_good = True
             print(" - EC is properly setup")
@@ -1578,10 +1859,18 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     break
             if not found:
                 print(" --> USBX device NOT found!")
+                usb_data = self.get_usb_info()
+                ux_model = usb_data[m]["IOProviderMergeProperties"]
+                out = self.build_usbx_ssdt(ux_model, m)
+                if out:
+                    ssdts.append(os.path.basename(out))
         print("")
         print("EC Setup Properly:   {}{}{}".format(self.cs if ec_good else self.rs, ec_good, self.ce))
         print("USBX Setup Properly: {}{}{}".format(self.cs if usbx_good else self.rs, usbx_good, self.ce))
         print("")
+        if len(ssdts):
+            self.prompt_install_ssdt(ssdts)
+            print("")
         self.u.grab("Press [enter] to return")
 
     def main(self):
@@ -1590,7 +1879,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         print("")
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
         if os.path.exists(self.plist):
-            print("Plist:          "+self.bs+"{}".format(self.plist)+self.ce)
+            print("Plist:          "+self.bs+"{}".format(os.path.basename(self.plist))+self.ce)
         else:
             print("Plist:          "+self.rs+"None"+self.ce)
         args = self.get_uia_args()
@@ -1654,6 +1943,12 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     if len(p[u]["items"]) > len(po[u]["items"]):
                         # Extra items in the new one - dump them
                         po[u]["items"] = p[u]["items"]
+                    if p[u].get("name",None):
+                        # Got a name - make sure it reflects
+                        po[u]["name"] = p[u]["name"]
+                    elif po[u].get("name",None):
+                        # No name - make sure we don't have one
+                        del po[u]["name"]
                 p = po
             # Just write the output
             with open(self.plist, "wb") as f:
