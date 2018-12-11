@@ -11,6 +11,10 @@ __pycache__/
 *.plist
 *.dsl
 *.aml
+*.kext
+
+# Ignore Results folder
+Results
 
 # Ignore iasl
 iasl
