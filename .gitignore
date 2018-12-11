@@ -12,6 +12,7 @@ __pycache__/
 *.dsl
 *.aml
 *.kext
+*.json
 
 # Ignore Results folder
 Results
