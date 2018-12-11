@@ -526,17 +526,20 @@ class USBMap:
         }
         print("Writing to USBMap.kext")
         # Remove if exists
-        if os.path.exists("USBMap.kext"):
-            shutil.rmtree("USBMap.kext", ignore_errors=True)
+        if os.path.exists("./{}/USBMap.kext".format(self.output)):
+            shutil.rmtree("./{}/USBMap.kext".format(self.output), ignore_errors=True)
         # Make folder structure
-        os.makedirs("USBMap.kext/Contents")
+        os.makedirs("./{}/USBMap.kext/Contents".format(self.output))
         # Add the Info.plist
-        with open("USBMap.kext/Contents/Info.plist", "wb") as f:
+        with open("./{}/USBMap.kext/Contents/Info.plist".format(self.output), "wb") as f:
             plist.dump(final_dict, f)
         print(" - Created USBMap.kext!")
-        self.re.reveal("USBMap.kext")
+        out = self.validate_power(False)
+        out.append("USBMap.kext")
+        self.prompt_install_ssdt(out)
         print("")
         self.u.grab("Press [enter] to return")
+        self.re.reveal("./{}/USBMap.kext".format(self.output))
 
     def check_iasl(self):
         target = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.scripts, "iasl")
@@ -715,8 +718,7 @@ class USBMap:
         if not len(ssdts):
             # Nothing to do
             return
-        print("")
-        print(self.bs+"Created the following SSDT{}:".format("" if len(ssdts) == 1 else "s")+self.ce)
+        print(self.bs+"Created the following file{}:".format("" if len(ssdts) == 1 else "s")+self.ce)
         print("")
         print("\n".join(ssdts))
         print("")
@@ -730,6 +732,7 @@ class USBMap:
             if not apply[0].lower() == "y":
                 continue
             # We should be able to apply now
+            print("")
             print("Locating EFI")
             try:
                 efi = self.k.get_efi(bdmesg.get_clover_uuid())
@@ -752,19 +755,36 @@ class USBMap:
             if not os.path.exists(patched):
                 print(" - Not found - aborting.")
                 break
+            if any(x for x in ssdts if x.lower().endswith(".kext")):
+                # Have at least one kext we're copying
+                print("Locating Other folder")
+                other = os.path.join(self.k.get_mount_point(efi), "EFI", "CLOVER", "kexts", "Other")
+                if not os.path.exists(other):
+                    print(" - Not found - aborting.")
+                    break
             # Iterate and copy
-            print(" - Copying SSDTs")
+            print(" - Copying Files")
             for s in ssdts:
+                if s.lower().endswith(".kext"):
+                    target = other
+                else:
+                    target = patched
                 print(" --> {}".format(s))
-                if os.path.exists(os.path.join(patched, s)):
+                if os.path.exists(os.path.join(target, s)):
                     print(" ----> Already exists, removing")
                     try:
-                        os.remove(os.path.join(patched,s))
+                        if os.path.isdir(os.path.join(target,s)):
+                            shutil.rmtree(os.path.join(target,s))
+                        else:
+                            os.remove(os.path.join(target,s))
                     except:
                         pass
                 print(" ----> Copying")
                 try:
-                    shutil.copy("./{}/{}".format(self.output, s), os.path.join(patched,s))
+                    if os.path.isdir("./{}/{}".format(self.output, s)):
+                        shutil.copytree("./{}/{}".format(self.output, s), os.path.join(target,s))
+                    else:
+                        shutil.copy("./{}/{}".format(self.output, s), os.path.join(target,s))
                 except:
                     print(" ------> Failed to copy!")
             if not is_mounted:
@@ -1179,10 +1199,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         out = self.compile("./{}/SSDT-UIAC.dsl".format(self.output))
         if not out:
             print(" - Created SSDT-UIAC.dsl - but could not compile!")
-            self.re.reveal("./{}/SSDT-UIAC.dsl".format(self.output))
         else:
             print(" - Created SSDT-UIAC.aml!")
-            self.re.reveal(out)
         if len(excluded):
             # Create a text file with the boot arg
             print("Writing Exclusion-Arg.txt")
@@ -1195,6 +1213,10 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         self.prompt_install_ssdt()
         print("")
         self.u.grab("Press [enter] to return")
+        if not out:
+            self.re.reveal("./{}/SSDT-UIAC.dsl".format(self.output))
+        else:
+            self.re.reveal(out)
 
     def edit_plist(self):
         self.u.head("Edit USB.plist")
@@ -1818,10 +1840,11 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 # Not a valid number
                 continue
 
-    def validate_power(self):
-        self.u.resize(80, 24)
-        self.u.head("Validating USB Power Settings")
-        print("")
+    def validate_power(self, display = True):
+        if display:
+            self.u.resize(80, 24)
+            self.u.head("Validating USB Power Settings")
+            print("")
         print("Checking EC")
         ec_check = self.check_ec()
         ec_good = False
@@ -1863,19 +1886,34 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     break
             if not found:
                 print(" --> USBX device NOT found!")
-                usb_data = self.get_usb_info()
-                ux_model = usb_data[m]["IOProviderMergeProperties"]
-                out = self.build_usbx_ssdt(ux_model, m)
+                if len(self.settings["usb_overrides"]):
+                    print(" ----> {} not found in IOUSBHostFamily.kext".format(ux_model))
+                    print(" ------> User overrides provided")
+                    uxm_data = self.settings["usb_overrides"]
+                    from_text = "were user-provided"
+                else:
+                    print(" ---> {} not found in IOUSBHostFamily.kext".format(ux_model))
+                    print(" ------> Using properties from {}".format(m))
+                    usb_data = self.get_usb_info()
+                    uxm_data = usb_data[m]["IOProviderMergeProperties"]
+                    from_text = "from "+m
+                out = self.build_usbx_ssdt(uxm_data, from_text)
                 if out:
                     ssdts.append(os.path.basename(out))
         print("")
-        print("EC Setup Properly:   {}{}{}".format(self.cs if ec_good else self.rs, ec_good, self.ce))
-        print("USBX Setup Properly: {}{}{}".format(self.cs if usbx_good else self.rs, usbx_good, self.ce))
-        print("")
-        if len(ssdts):
-            self.prompt_install_ssdt(ssdts)
+        if display:
+            print("EC Setup Properly:   {}{}{}".format(self.cs if ec_good else self.rs, ec_good, self.ce))
+            print("USBX Setup Properly: {}{}{}".format(self.cs if usbx_good else self.rs, usbx_good, self.ce))
             print("")
-        self.u.grab("Press [enter] to return")
+        if len(ssdts):
+            if display:
+                self.prompt_install_ssdt(ssdts)
+                print("")
+            else:
+                return ssdts
+        if display:
+            self.u.grab("Press [enter] to return")
+        return []
 
     def main(self):
         self.u.resize(80, 24)
