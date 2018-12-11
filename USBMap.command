@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-import os, sys, re, pprint, binascii, plistlib, shutil, tempfile, zipfile, base64, plistlib
+import os, sys, re, pprint, binascii, plistlib, shutil, tempfile, zipfile, base64, plistlib, json
 from Scripts import *
 
 class USBMap:
     def __init__(self):
+        os.chdir(os.path.dirname(os.path.realpath(__file__)))
         self.u = utils.Utils("USBMap")
         self.r = run.Run()
         self.d = downloader.Downloader()
@@ -63,26 +64,22 @@ class USBMap:
                 "locationID" : 437256192
             }
         }
+        self.load_settings()
 
-        """
-            Type Integer
-            (BYTE)
-            Specifies the host connector type. It is ignored by OSPM if the port is not user
-            visible:
-            0x00: Type A connector
-            0x01: Mini-AB connector
-            0x02: ExpressCard
-            0x03: USB 3 Standard-A connector
-            0x04: USB 3 Standard-B connector
-            0x05: USB 3 Micro-B connector
-            0x06: USB 3 Micro-AB connector
-            0x07: USB 3 Power-B connector
-            0x08: Type C connector - USB2-only
-            0x09: Type C connector - USB2 and SS with Switch
-            0x0A: Type C connector - USB2 and SS without Switch
-            0x0B-0xFE: Reserved
-            0xFF: Proprietary connector
-        """
+    def load_settings(self):
+        if os.path.exists("./{}/settings.json".format(self.scripts)):
+            self.settings = json.load(open("./{}/settings.json".format(self.scripts)))
+        else:
+            # Set up defaults
+            self.settings = {
+                "separate_ssdts" : True,
+                "check_ec" : True,
+                "check_usbx" : True,
+                "usb_overrides" : {}
+            }
+
+    def flush_settings(self):
+        json.dump(self.settings, open("./{}/settings.json".format(self.scripts), "w"))
 
     def get_model(self):
         return self.r.run({"args":["sysctl", "hw.model"]})[0].split(": ")[1].strip()
@@ -1291,22 +1288,22 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             self.u.resize(80, h)
             # Let's display some defaults with the ability to change them for USB power stuffs
             ec = self.bs+"Force Fake"+self.ce
-            if self.ec == True:
+            if self.settings["check_ec"] == True:
                 ec = self.cs+"Yes"+self.ce
-            elif self.ec == False:
+            elif self.settings["check_ec"] == False:
                 ec = self.rs+"No"+self.ce
             usbx = self.cs+"Yes"+self.ce
-            if len(self.usb_overrides):
+            if len(self.settings["usb_overrides"]):
                 # We have overrides
-                usbx = self.cs+"Yes"+self.bs+", With 1 Custom Override"+self.ce if len(self.usb_overrides) == 1 else self.cs+"Yes"+self.bs+", With {} Custom Overrides".format(len(self.usb_overrides))+self.ce
+                usbx = self.cs+"Yes"+self.bs+", With 1 Custom Override"+self.ce if len(self.settings["usb_overrides"]) == 1 else self.cs+"Yes"+self.bs+", With {} Custom Overrides".format(len(self.settings["usb_overrides"]))+self.ce
             else:
-                usbx = self.rs+"No"+self.ce if self.usbx == False else self.cs+"Yes"+self.ce
+                usbx = self.rs+"No"+self.ce if self.settings["check_usbx"] == False else self.cs+"Yes"+self.ce
             print("Check EC:    {}".format(ec))
             print("Check USBX:  {}".format(usbx))
             print("One SSDT:    {}".format(self.cs+"No - Separate SSDT-EC, SSDT-USBX, and SSDT-UIAC"+self.ce if self.sep_ssdt else self.bs+"Yes - Joined EC and USBX inside SSDT-UIAC"+self.ce))
             print("")
             print("E. Toggle EC (Yes, No, Force)")
-            print("U. Toggle USBX (Yes, No){}".format(" - Removes Overrides!" if len(self.usb_overrides) else ""))
+            print("U. Toggle USBX (Yes, No){}".format(" - Removes Overrides!" if len(self.settings["usb_overrides"]) else ""))
             print("D. Toggle One SSDT")
             print("O. Set USB Overrides")
             print("")
@@ -1331,29 +1328,32 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             elif menu.lower() == "m":
                 return
             elif menu.lower() == "e":
-                if self.ec == True:
-                    self.ec = False
-                elif self.ec == False:
-                    self.ec = None
+                if self.settings["check_ec"] == True:
+                    self.settings["check_ec"] = False
+                elif self.settings["check_ec"] == False:
+                    self.settings["check_ec"] = None
                 else:
-                    self.ec = True
+                    self.settings["check_ec"] = True
+                self.flush_settings()
                 continue
             elif menu.lower() == "u":
-                self.usb_overrides = {}
-                if not self.usbx in [True,False]:
-                    self.usbx = True
-                elif self.usbx == True:
-                    self.usbx = False
+                self.settings["usb_overrides"] = {}
+                if not self.settings["check_usbx"] in [True,False]:
+                    self.settings["check_usbx"] = True
+                elif self.settings["check_usbx"] == True:
+                    self.settings["check_usbx"] = False
                 else:
-                    self.usbx = True
+                    self.settings["check_usbx"] = True
+                self.flush_settings()
                 continue
             elif menu.lower() == "d":
                 self.sep_ssdt ^= True
                 continue
             elif menu.lower() == "o":
                 self.get_overrides()
-                if len(self.usb_overrides):
-                    self.usbx = True
+                if len(self.settings["usb_overrides"]):
+                    self.settings["check_usbx"] = True
+                self.flush_settings()
                 continue
             elif menu.lower() == "t":
                 self.print_types()
@@ -1363,13 +1363,13 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 return
             elif menu.lower() == "s":
                 # Gather args
-                args = {"check_ec":self.ec}
-                if self.usbx:
+                args = {"check_ec":self.settings["check_ec"]}
+                if self.settings["check_usbx"]:
                     # On or off - just pass that along
-                    args["check_ux"] = self.usbx
-                if len(self.usb_overrides):
+                    args["check_ux"] = self.settings["check_usbx"]
+                if len(self.settings["usb_overrides"]):
                     # We have custom overrides
-                    args["uxm_data"] = self.usb_overrides
+                    args["uxm_data"] = self.settings["usb_overrides"]
                 self.build_ssdt(**args)
                 return
             elif menu.lower() in ["a","n"]:
@@ -1432,14 +1432,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             self.u.head("USB Overrides")
             pad = 13
             print("")
-            if not len(self.usb_overrides):
+            if not len(self.settings["usb_overrides"]):
                 count = 1
                 print(self.rs+"No USB overrides set."+self.ce)
             else:
                 count = 0
-                for x in self.usb_overrides:
+                for x in self.settings["usb_overrides"]:
                     count += 1
-                    print("{}. {}{}{}:{}{}{}".format(count, self.bs, x, self.ce, self.cs, self.usb_overrides[x], self.ce))
+                    print("{}. {}{}{}:{}{}{}".format(count, self.bs, x, self.ce, self.cs, self.settings["usb_overrides"][x], self.ce))
             print("")
             print("You can add a new override by typing name:value (eg. kUSBWakePowerSupply:5100)")
             print("or you can remove existing values by typing their number.")
@@ -1456,7 +1456,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             elif menu.lower() == "m":
                 return
             elif menu.lower() == "c":
-                self.usb_overrides = {}
+                self.settings["usb_overrides"] = {}
+                self.flush_settings()
                 continue
             elif menu.lower() == "q":
                 self.u.resize(80,24)
@@ -1466,12 +1467,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 if out:
                     # Got a valid SMBIOS version
                     usb_data = self.get_usb_info()
-                    self.usb_overrides = usb_data[out]["IOProviderMergeProperties"]
+                    self.settings["usb_overrides"] = usb_data[out]["IOProviderMergeProperties"]
+                    self.flush_settings()
                 continue
             # Check if we have an int - and if it's in our list
             try:
                 # Pop the key at index of menu-1 from our usb_overrides
-                self.usb_overrides.pop(list(self.usb_overrides)[int(menu)-1])
+                self.settings["usb_overrides"].pop(list(self.settings["usb_overrides"])[int(menu)-1])
+                self.flush_settings()
                 continue
             except:
                 pass
@@ -1479,7 +1482,8 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             try:
                 parts = menu.split(":")
                 k,v = parts[0], parts[1]
-                self.usb_overrides[k] = v
+                self.settings["usb_overrides"][k] = v
+                self.flush_settings()
             except:
                 # Not formatted right
                 continue
@@ -1916,6 +1920,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         print("  C. Clear Exclusions")
         print("")
         print("R.  Remove Plist")
+        print("T.  Reset Settings to Defaults")
         print("P.  Edit Plist & Create SSDT/Kext")
         print("D.  Discover Ports")
         print("U.  Validate USB Power Settings")
@@ -1956,6 +1961,12 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         elif menu.lower() == "r":
             if os.path.exists(self.plist):
                 os.unlink(self.plist)
+        elif menu.lower() == "t":
+            try:
+                os.remove("./{}/settings.json".format(self.scripts))
+            except:
+                pass
+            self.load_settings()
         elif menu.lower() == "u":
             self.validate_power()
         elif menu.lower() == "p":
