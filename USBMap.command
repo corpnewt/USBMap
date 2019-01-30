@@ -20,7 +20,12 @@ class USBMap:
         self.output  = "Results"
         self.usb_re = re.compile("(SS|SSP|HS|HP|PR|USR)[a-fA-F0-9]{1,2}@[a-fA-F0-9]{1,}")
         self.usb_dict = {}
-        self.xch_devid = self.get_xhc_devid()
+        self.xhc_devid = self.get_xhc_devid()
+        
+        self.xhc_addr = self.get_addr()
+        self.eh01_addr = self.get_addr(" EH01@")
+        self.eh02_addr = self.get_addr(" EH02@")
+
         self.min_uia_v = "0.7.0"
         self.plist = "./Scripts/USB.plist"
         self.disc_wait = 5
@@ -135,6 +140,41 @@ class USBMap:
                     break
         # Not found, or issues - return generic
         return "8086_xxxx"
+
+    def get_addr(self,dev=" XHC@",c_name="  <class AppleUSB"):
+        ioreg_text = self.r.run({"args":["ioreg","l","-p","IOService","-w0"]})[0]
+        for line in ioreg_text.split("\n"):
+            if dev in line and c_name in line:
+                # Probably got it?  Split it
+                try:
+                    return line.split(dev)[1].split(c_name)[0]
+                except:
+                    return None
+        return None
+
+    def get_port_addr(self, port, controller):
+        # Attempts to extract just the port number
+        # Bits should be:
+        #
+        #   device   port   ??      ??        ??
+        # [00000000][0000][0000][00000000][00000000]
+        #
+        # So we should shift both >> 20 and subtract
+        #
+        # First try to get the number in CTRLR@0000000
+        try:
+            port = port.split("@")[1]
+        except:
+            pass
+        try:
+            controller = controller.split("@")[1]
+        except:
+            pass
+        # Now try to move/subtract them
+        try:
+            return (int(port,16)>>20)-(int(controller,16)>>20)
+        except:
+            return None
 
     def get_ports(self, ioreg_text = None):
         if os.path.exists("usb.txt"):
@@ -1165,7 +1205,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         # the controllers and format accordingly
         for c in self.sort(ports):
             # Got a controller, let's add it
-            d = c if not c == "XHC" else self.xch_devid
+            d = c if not c == "XHC" else self.xhc_devid
             # Set controller to HUB1/2 if needed
             if d in ["EH01-internal-hub","EH02-internal-hub"]:
                 d = "HUB"+c[3]
