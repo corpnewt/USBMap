@@ -576,7 +576,7 @@ class USBMap:
         print(" - Created USBMap.kext!")
         out = self.validate_power(False)
         out.append("USBMap.kext")
-        self.prompt_install_ssdt(out)
+        self.prompt_install_ssdt(out,["USBInjectAll.kext"])
         print("")
         self.u.grab("Press [enter] to return")
         self.re.reveal("./{}/USBMap.kext".format(self.output))
@@ -748,7 +748,7 @@ class USBMap:
                         print(" --> Failed to unmount.")
                 break
 
-    def prompt_install_ssdt(self, ssdts = []):
+    def prompt_install_ssdt(self, ssdts = [], remove = []):
         # Gather the .aml files in our output folder - only if not provided
         if not len(ssdts):
             ssdts = []
@@ -802,6 +802,59 @@ class USBMap:
                 if not os.path.exists(other):
                     print(" - Not found - aborting.")
                     break
+            if len(remove):
+                print(" - Verifying removals...")
+                removelist = {}
+                for x in remove:
+                    if not x in removelist:
+                        removelist[x] = []
+                    if x.lower().endswith(".kext"):
+                        # Is a kext - let's check the .kext folders
+                        for d in sorted(os.listdir(os.path.join(self.k.get_mount_point(efi),"EFI","CLOVER","kexts"))):
+                            p = os.path.join(self.k.get_mount_point(efi), "EFI","CLOVER","kexts",d,x)
+                            if os.path.exists(p):
+                                # Found it - save
+                                removelist[x].append(os.path.join(self.k.get_mount_point(efi),"EFI","CLOVER","kexts",d))
+                    else:
+                        # Assume it's an .efi driver
+                        for d in ["drivers32","drivers64","drivers32UEFI","drivers64UEFI"]:
+                            p = os.path.join(self.k.get_mount_point(efi),"EFI","CLOVER",d,x)
+                            if os.path.exists(p):
+                                # Found it - save
+                                removelist[x].append(os.path.join(self.k.get_mount_point(efi),"EFI","CLOVER","kexts",d))
+                exists = [x for x in removelist if len(removelist[x])]
+                if len(exists):
+                    print(" - Located the following:")
+                    for x in exists:
+                        print(" --> {} at:".format(x))
+                        for p in removelist[x]:
+                            print(" ----> {}".format(p))
+                    print("")
+                    while True:
+                        apply = self.u.grab("Remove? (y/n):  ")
+                        if not len(apply):
+                            continue
+                        if apply[0].lower() == "n":
+                            print("")
+                            break
+                        if not apply[0].lower() == "y":
+                            continue
+                        print("")
+                        # Remove them
+                        print(" - Removing:")
+                        for x in exists:
+                            for p in removelist[x]:
+                                path = os.path.join(p,x)
+                                print(" --> {}".format(path))
+                                try:
+                                    if os.path.isdir(path):
+                                        shutil.rmtree(path)
+                                    else:
+                                        os.remove(path)
+                                except:
+                                    pass
+                        # Leave the loop
+                        break
             # Iterate and copy
             print(" - Copying Files")
             for s in ssdts:
@@ -809,9 +862,10 @@ class USBMap:
                     target = other
                 else:
                     target = patched
-                print(" --> {}".format(s))
+                print(" --> {} to:".format(s))
+                print(" ----> {}".format(target))
                 if os.path.exists(os.path.join(target, s)):
-                    print(" ----> Already exists, removing")
+                    print(" ------> Already exists, removing")
                     try:
                         if os.path.isdir(os.path.join(target,s)):
                             shutil.rmtree(os.path.join(target,s))
@@ -819,7 +873,6 @@ class USBMap:
                             os.remove(os.path.join(target,s))
                     except:
                         pass
-                print(" ----> Copying")
                 try:
                     if os.path.isdir("./{}/{}".format(self.output, s)):
                         shutil.copytree("./{}/{}".format(self.output, s), os.path.join(target,s))
