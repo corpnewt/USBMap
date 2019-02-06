@@ -78,10 +78,9 @@ When you have the list setup the way you need, you can choose to either select `
 
 The resulting kext can be copied to your _EFI/CLOVER/kexts/Other_ folder and a reboot should enable it (as long as you have InjectKexts enabled in your config.plist).
 
-The resulting SSDT-UIAC.aml (_iasl_ is automatically downloaded and used to compile the .dsl if possible) can be placed in your _EFI/CLOVER/ACPI/patched_ folder - but do ensure that you have _one of the following_ in your config.plist:
+The resulting SSDT-UIAC.aml (_iasl_ is automatically downloaded and used to compile the .dsl if possible) can be placed in your _EFI/CLOVER/ACPI/patched_ folder.  If using _SortedOrder_, make sure of the following:
 
 * _config.plist -> ACPI -> SortedOrder:_ dictionary must contain `<string>SSDT_UIAC.aml</string>`
-* _config.plist -> ACPI -> AutoMerge:_ set to `<true/>`
 
 Before rebooting again - make sure to go to the main menu of the script and select `C. Clear Exclusions` to remove any excluded/included ports.
 
