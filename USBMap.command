@@ -366,7 +366,11 @@ class USBMap:
                 if c in ["EH01-internal-hub","EH02-internal-hub"]:
                     c = "HUB"+c[3]
                 sel[c]["total"] += 1
-                ptext = "{}. {} - Type {} - Controller {}".format(count, n, t, c)
+                # Removing the type output in discovery to avoid confusion, as it's
+                # only guessed, and doesn't reflect any types set.
+                #
+                # ptext = "{}. {} - Type {} - Controller {}".format(count, n, t, c)
+                ptext = "{}. {} - Controller {}".format(count, n, c)
                 if port == last_added:
                     sel[c]["selected"] += 1
                     ptext = self.cs + ptext + self.ce
