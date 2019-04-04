@@ -1728,6 +1728,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         for arg in arglist:
             if not "uia_" in arg:
                 uia.append(arg)
+        uia = [x for x in uia if len(x)]
         return uia
 
     def sort(self, usblist):
