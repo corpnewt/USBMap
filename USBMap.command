@@ -1759,7 +1759,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 rest.append(x)
         # Check if we have HS14 in our list and our xhci device id starts with 8
         # then add a phantom HS15 port to preserve proper numbering
-        if check_phantom and self.xhc_devid.startswith("8086_8"):
+        if check_phantom and self.xhc_devid.startswith("8086_8") and "HS14" in hslist:
             if not "HS15" in hslist:
                 hslist.append("HS15")
         newlist.extend(sorted(hslist))
