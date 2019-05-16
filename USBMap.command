@@ -516,7 +516,12 @@ class USBMap:
                     "top":0
                 }
             }
-        for u in self.sort(p):
+        for u in self.sort(p,True):
+            # Skip if HS15 - phantom port
+            if u == "HS15":
+                # Increment the XHC count
+                sel["XHC"]["top"] += 1
+                continue
             c = p[u]["controller"]
             if not c in ["XHC","EH01","EH02","EH01-internal-hub","EH02-internal-hub"]:
                 # Not valid - skip
@@ -528,9 +533,6 @@ class USBMap:
                 c = c[:4]
             # Skip if it's skipped
             if not p[u]["selected"]:
-                continue
-            # Skip if HS15 - phantom port
-            if u == "HS15":
                 continue
             # Figure out which controller each port is on
             # and map them in
@@ -1222,7 +1224,14 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                     "top":0
                 }
             }
-        for u in self.sort(p):
+        for u in self.sort(p,True):
+            # Skip if HS15 - phantom port
+            if u == "HS15":
+                if "HS15" in p:
+                    # Port was actually found - exclude it
+                    excluded.append(u)
+                sel["XHC"]["top"] += 1
+                continue
             c = p[u]["controller"]
             if not c in ["XHC","EH01","EH02","EH01-internal-hub","EH02-internal-hub"]:
                 # Not valid - skip
@@ -1233,10 +1242,6 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             # populates XHC, EH01, EH02, HUB1, and HUB2
             # Skip if it's skipped
             if not p[u]["selected"]:
-                excluded.append(u)
-                continue
-            # Skip if HS15 - phantom port
-            if u == "HS15":
                 excluded.append(u)
                 continue
             if not c in ports:
@@ -1731,7 +1736,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         uia = [x for x in uia if len(x)]
         return uia
 
-    def sort(self, usblist):
+    def sort(self, usblist, check_phantom = False):
         # Custom sorting based on prefixes
         #
         # Prefix order needed = HSxx, USRx, SSxx
@@ -1752,6 +1757,11 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                 hplist.append(x)
             else:
                 rest.append(x)
+        # Check if we have HS14 in our list and our xhci device id starts with 8
+        # then add a phantom HS15 port to preserve proper numbering
+        if check_phantom and self.xhc_devid.startswith("8086_8"):
+            if not "HS15" in hslist:
+                hslist.append("HS15")
         newlist.extend(sorted(hslist))
         newlist.extend(sorted(usrlist))
         newlist.extend(sorted(sslist))
