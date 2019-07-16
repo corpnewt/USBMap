@@ -1882,10 +1882,18 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
         return 0
 
     def get_usb_info(self):
+        # Moved in 10.15
+        os_version = self.r.run({"args":["sw_vers","-product_Version"]})[0].strip()
+        if (os_version < "10.15"):
+            path = "/System/Library/Extensions/IOUSBHostFamily.kext/Contents/Info.plist"
+            key  = "IOKitPersonalities"
+        else:
+            path = "/System/Library/Extensions/IOUSBHostFamily.kext/Contents/PlugIns/AppleUSBHostPlatformProperties.kext/Contents/Info.plist"
+            key  = "IOKitPersonalities_x86_64"
         try:
-            with open("/System/Library/Extensions/IOUSBHostFamily.kext/Contents/Info.plist","rb") as f:
+            with open(path,"rb") as f:
                 usb_plist = plist.load(f)
-            usb_list = usb_plist.get("IOKitPersonalities",None)
+            usb_list = usb_plist.get(key,None)
         except:
             return None
         return usb_list
@@ -1931,9 +1939,9 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             print("")
             self.u.grab("Press [enter] to return")
             return None
-        model_list = sorted([x for x in usb_list if not x.startswith("AppleUSBHostResources")])
-        pad = 10
-        h = len(usb_list)+pad if len(usb_list)+pad > 24 else 24
+        model_list = sorted([x for x in usb_list if not x.startswith("AppleUSBHostResources") and not "-" in x])
+        pad = 12
+        h = len(model_list)+pad if len(model_list)+pad > 24 else 24
         self.u.resize(80, h)
         while True:
             if close:
