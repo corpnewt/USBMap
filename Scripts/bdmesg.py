@@ -20,6 +20,22 @@ def get_clover_uuid():
         pass
     return ""
 
+def get_oc_uuid():
+    p = subprocess.Popen(["nvram","4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:boot-path"], shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    oc, oe = p.communicate()
+    oc = _decode(oc)
+    try:
+        path = oc.split("GPT,")[1].split(",")[0]
+    except:
+        path = ""
+    return path
+
+def get_bootloader_uuid():
+    b_uuid = get_clover_uuid()
+    if not b_uuid:
+        b_uuid = get_oc_uuid()
+    return b_uuid
+
 def bdmesg(just_clover = True):
     b = "" if just_clover else _bdmesg(["ioreg","-l","-p","IOService","-w0"])
     if b == "":
