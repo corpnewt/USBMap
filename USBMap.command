@@ -1883,7 +1883,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
 
     def get_usb_info(self):
         # Moved in 10.15
-        os_version = self.r.run({"args":["sw_vers","-product_Version"]})[0].strip()
+        os_version = self.r.run({"args":["sw_vers","-productVersion"]})[0].strip()
         if (os_version < "10.15"):
             path = "/System/Library/Extensions/IOUSBHostFamily.kext/Contents/Info.plist"
             key  = "IOKitPersonalities"
