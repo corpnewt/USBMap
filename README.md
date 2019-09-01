@@ -80,7 +80,8 @@ The resulting kext can be copied to your _EFI/CLOVER/kexts/Other_ folder and a r
 
 The resulting SSDT-UIAC.aml (_iasl_ is automatically downloaded and used to compile the .dsl if possible) can be placed in your _EFI/CLOVER/ACPI/patched_ folder.  If using _SortedOrder_, make sure of the following:
 
-* _config.plist -> ACPI -> SortedOrder:_ dictionary must contain `<string>SSDT_UIAC.aml</string>`
+* _config.plist -> ACPI -> SortedOrder:_ dictionary must contain `<string>SSDT-UIAC.aml</string>`
+   * If the script generated SSDT-USBX.aml and/or SSDT-EC.aml, you'll also need to add entries for those
 
 Before rebooting again - make sure to go to the main menu of the script and select `C. Clear Exclusions` to remove any excluded/included ports.
 
