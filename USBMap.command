@@ -19,6 +19,7 @@ class USBMap:
         self.scripts = "Scripts"
         self.output  = "Results"
         self.usb_re = re.compile("(SS|SSP|HS|HP|PR|USR)[a-fA-F0-9]{1,2}@[a-fA-F0-9]{1,}")
+        self.prt_re = re.compile("AppleUSB\d{2}XHCIPort")
         self.usb_dict = {}
         self.xhc_devid = self.get_xhc_devid()
         
@@ -185,7 +186,7 @@ class USBMap:
         matched = []
         for line in ioreg_text.split("\n"):
             match = self.usb_re.search(line)
-            if match and "@1" in line and "USB" in line and not "HS15" in line:
+            if self.usb_re.search(line) and self.prt_re.search(line) and "@1" in line and not "HS15" in line:
                 # format the line
                 l = line.split("+-o ")[1].split(" ")[0]
                 c = line.split("<class ")[1].split(",")[0]
