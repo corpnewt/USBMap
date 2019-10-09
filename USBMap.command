@@ -19,7 +19,7 @@ class USBMap:
         self.scripts = "Scripts"
         self.output  = "Results"
         self.usb_re = re.compile("(SS|SSP|HS|HP|PR|USR)[a-fA-F0-9]{1,2}@[a-fA-F0-9]{1,}")
-        self.prt_re = re.compile("AppleUSB\d?[A-Z]+Port")
+        self.prt_re = re.compile("AppleUSB\d*[A-Z]+Port")
         self.usb_dict = {}
         self.xhc_devid = self.get_xhc_devid()
         
@@ -2130,8 +2130,12 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             p = self.discover()
             if os.path.exists(self.plist):
                 # It exists - we need to merge
-                with open(self.plist, "rb") as f:
-                    po = plist.load(f)
+                try:
+                    with open(self.plist, "rb") as f:
+                        po = plist.load(f)
+                except:
+                    # Failed to load - let's load an empty dict instead
+                    po = {}
                 for u in p:
                     if not u in po:
                         # Make sure we have the entry
@@ -2150,8 +2154,12 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
                         del po[u]["name"]
                 p = po
             # Just write the output
-            with open(self.plist, "wb") as f:
-                plist.dump(p, f)
+            try:
+                with open(self.plist, "wb") as f:
+                    plist.dump(p, f)
+            except Exception as e:
+                print("Couldn't write the plist info!")
+                print(" - {}".format(e))
         elif menu.lower() == "r":
             if os.path.exists(self.plist):
                 os.unlink(self.plist)
