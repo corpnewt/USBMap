@@ -41,21 +41,17 @@ class USBMap:
             "XHC": {
                 "IONameMatch" : "XHC",
                 "IOProviderClass" : "AppleUSBXHCIPCI",
-                "CFBundleIdentifier" : "com.apple.driver.AppleUSBHostMergeProperties"
-                # "kConfigurationName" : "XHC",
-                # "kIsXHC" : True
+                "CFBundleIdentifier" : "com.apple.driver.AppleUSBMergeNub"
             }, 
             "EH01": {
                 "IONameMatch" : "EH01",
                 "IOProviderClass" : "AppleUSBEHCIPCI",
-                "CFBundleIdentifier" : "com.apple.driver.AppleUSBHostMergeProperties"
-                # "kConfigurationName" : "EH01"
+                "CFBundleIdentifier" : "com.apple.driver.AppleUSBMergeNub"
             },
             "EH02": {
                 "IONameMatch" : "EH02",
                 "IOProviderClass" : "AppleUSBEHCIPCI",
-                "CFBundleIdentifier" : "com.apple.driver.AppleUSBHostMergeProperties"
-                # "kConfigurationName" : "EH02"
+                "CFBundleIdentifier" : "com.apple.driver.AppleUSBMergeNub"
             },
             "EH01-internal-hub": {
                 "IOProbeScore" : 5000,
@@ -542,9 +538,8 @@ class USBMap:
                     # Setup defaults
                     ports[m+"-"+c][x] = self.usb_plist[c][x]
                 # Add the necessary info for all of them
-                ports[m+"-"+c]["IOClass"] = "AppleUSBHostMergeProperties"
+                ports[m+"-"+c]["IOClass"] = "AppleUSBMergeNub"
                 ports[m+"-"+c]["model"] = m
-                # ports[m+"-"+c]["IOClass"] = "USBInjectAll"
                 ports[m+"-"+c]["IOProviderMergeProperties"] = {
                     "port-count" : 0,
                     "ports" : {},
@@ -555,6 +550,7 @@ class USBMap:
                 t_var : p[u]["type"]
             }
             ports[m+"-"+c]["IOProviderMergeProperties"]["port-count"] = self.hex_to_data(sel[p[u]["controller"]]["top"])
+            ports[m+"-"+c]["IOProviderMergeProperties"]["kUSBMuxEnabled"] = True
 
         # Let's add our initial vars too
         final_dict = {
@@ -1506,9 +1502,7 @@ DefinitionBlock ("", "SSDT", 2, "hack", "_UIAC", 0)
             elif menu.lower() == "s":
                 # Gather args
                 args = {"check_ec":self.settings["check_ec"]}
-                if self.settings["check_usbx"]:
-                    # On or off - just pass that along
-                    args["check_ux"] = self.settings["check_usbx"]
+                args["check_ux"] = self.settings.get("check_usbx",True)
                 if len(self.settings["usb_overrides"]):
                     # We have custom overrides
                     args["uxm_data"] = self.settings["usb_overrides"]
