@@ -72,6 +72,8 @@ With common types falling into 3 categories:
 255: Internal Header
 ```
 
+Note that front ports on a desktop case that are connected via extension cables to the internal header should not be set as the Internal Header type, so that USB drives connected to those ports appear with the correct white external disk icon instead of the grey internal disk icon.
+
 At the bottom of the list is a counter that will let you know if you're over the 15 port limit - this does not take multiple controllers as of now - so do consider that.
 
 When you have the list setup the way you need, you can choose to either select `K. Build USBMap.kext` or `S. Build SSDT-UIAC`.  The former will attempt to build a _USBMap.kext_ injector (which does not require _USBInjectAll.kext_) - this will _only add ports_ that don't show up without _USBInjectAll.kext_, though - so if your system is like my Asus Maximus X Code (which already detects _HS01-HS14_ and _SS01-SS10_ without _USBInjectAll.kext_), you'll already be above the 15 port limit and adding more ports will do no good.  Creating an SSDT is typically what most users will want to do as it selects only the ports you want the system to see.  This means it both adds and removes ports as needed.  The SSDT _does_ require _USBInjectAll.kext_ to be present though.
