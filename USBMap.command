@@ -242,12 +242,12 @@ class USBMap:
                 # Get the hex value - but limit to 3 spaces
                 pnum = int(m.split("@")[1][:3], 16)
                 # Find out which controller we're on
-                if pnum > xhc_start and pnum < eh2_start:
+                if xhc_start <= pnum < eh2_start:
                     # XHC Controller
                     ct = "XHC"
                     port = pnum - xhc_start
                     ty = 3
-                elif pnum > eh2_start and pnum < eh1_start:
+                elif eh2_start <= pnum < eh1_start:
                     # EH02 Controller
                     ct = "EH02"
                     port = pnum - eh2_start
