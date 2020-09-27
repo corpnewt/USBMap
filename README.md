@@ -21,6 +21,10 @@ Python script for mapping USB ports in macOS and creating a custom injector kext
 - [Installation](#installation)
 - [Vocab Lesson](#vocab-lesson)
 - [What Is USB Mapping?](#what-is-usb-mapping)
+  - [A Little Background](#a-little-background)
+    * [Finding Ports](#finding-ports)
+    * [The Port Limit](#the-port-limit)
+    
 
 ***
 
@@ -96,7 +100,7 @@ El Capitan changed the way the OS locates usable USB ports.  That discovery is d
 
 Uh... Let me set the scene...
 
-#### The... *shudder* - Port Limit:
+#### The Port Limit:
 
 *You finally got your install USB created, sweat pouring down your forehead as you plug that small instrument of black magic into a USB port and shakily press the power button.  The machine springs to life, fans whirring and circulating - lights all aglow.  Your display blinks, opens its metaphorical eyes and the BIOS splash screen greets you in its "I'm an 80s dream of the future" aesthetic - followed shortly by the boot picker for your boot manager of choice.  The selector moves to your install USB and you methodically press the Enter key.  Verbose text races across the screen, line by meticulous line, giving you a peek behind the curtain and into the heart of the boot process... but.. something's not right.  The text garbles... a large "prohibited" sign affixes itself squarely to the center of your display and seemingly taunts you as booting halts save for one slowly repeating line of garbled text.  Your eyes squint as you trace them over the mostly broken text... "Still waiting for root device..."*
 
