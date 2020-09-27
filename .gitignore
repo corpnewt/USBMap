@@ -20,6 +20,9 @@ Results
 # Ignore iasl
 iasl
 
+# Ignore the USB.plist as well
+USB.plist
+
 # Distribution / packaging
 .Python
 build/
