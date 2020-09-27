@@ -6,6 +6,14 @@ class USBMap:
     def __init__(self):
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
         self.u = utils.Utils("USBMap")
+        # Verify running os
+        if not sys.platform.lower() == "darwin":
+            self.u.head("Wrong OS!")
+            print("")
+            print("USBMap can only be run on macOS!")
+            print("")
+            self.u.grab("Press [enter] to exit...")
+            exit()
         self.r = run.Run()
         self.i = ioreg.IOReg()
         self.re = reveal.Reveal()
@@ -21,7 +29,7 @@ class USBMap:
         self.usb_hubp = re.compile("Apple[a-zA-Z0-9]*USB\d+HubPort")
         self.map_list = self.get_map_list()
         self.discover_wait = 5
-        self.illegal_names = ("XHC1","EHC1","EHC2","PXSX")
+        self.default_names = ("XHC1","EHC1","EHC2","PXSX")
         self.cs = u"\u001b[32;1m"
         self.ce = u"\u001b[0m"
         self.bs = u"\u001b[36;1m"
@@ -45,6 +53,38 @@ class USBMap:
         if not isinstance(self.merged_list,dict): self.merged_list = OrderedDict()
         self.check_controllers()
         self.connected_controllers = self.populate_controllers()
+        # Get illegal names
+        self.plugin_path = "/System/Library/Extensions/IOUSBHostFamily.kext/Contents/PlugIns"
+        self.illegal_names = self.get_illegal_names()
+
+    def get_illegal_names(self):
+        if not self.smbios or not os.path.exists(self.plugin_path):
+            return [x for x in self.default_names] # No SMBIOS, fall back on defaults
+        illegal_names = ["PXSX"] # Always start with the default PXSX name
+        for plugin in os.listdir(self.plugin_path):
+            plug_path = os.path.join(self.plugin_path,plugin)
+            info_path = os.path.join(plug_path,"Contents","Info.plist")
+            if plugin.startswith(".") or not os.path.isdir(plug_path): continue # Skip invisible or non-directories
+            # Got a valid directory - let's check the Info.plist
+            if not os.path.exists(info_path): continue # Doesn't exist
+            # Try to load, then walk the structure
+            try:
+                with open(info_path,"rb") as f:
+                    plist_data = plist.load(f)
+            except: continue # Borked Info.plist - skip
+            for key in plist_data:
+                if not key.startswith("IOKitPersonalities"): continue
+                # Got the proper key, let's walk the structure
+                walk_dict = plist_data[key]
+                for k in walk_dict:
+                    # Find out if we have a model and IONameMatch here
+                    smbios_entry = walk_dict[k]
+                    if not all((x in smbios_entry for x in ("model","IONameMatch"))): continue # No matches
+                    # Got both - let's see if the SMBIOS is ours
+                    if not smbios_entry["model"] == self.smbios: continue # Mismatch, skip
+                    # Take note of the IONameMatch, and add it to the illegal_names list
+                    illegal_names.append(smbios_entry["IONameMatch"])
+        return sorted(list(set(illegal_names)))
 
     def get_map_list(self):
         map_list = [self.usb_cont,self.usb_port]
