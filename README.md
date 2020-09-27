@@ -74,7 +74,7 @@ You can get the latest zip of this repo [here](https://github.com/corpnewt/USBMa
 
 *Alright kids, get out your cartography kits, we're going mapping!*
 
-If you've been reading diligently thusfar, you probably caught the short definition in the [Vocab Lesson](#vocab-lesson).  We're going to expand on that a fair bit more though!  Simply put, USB mapping is the process used to determing which port personalities correspond to which physical ports.
+If you've been reading diligently thusfar, you probably caught the short definition in the [Vocab Lesson](#vocab-lesson).  We're going to expand on that a fair bit more though!  Simply put, USB mapping is the process used to determine which port personalities correspond to which physical ports.
 
 ### A Little Background
 
