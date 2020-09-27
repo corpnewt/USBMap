@@ -24,6 +24,11 @@ Python script for mapping USB ports in macOS and creating a custom injector kext
   - [A Little Background](#a-little-background)
     * [Finding Ports](#finding-ports)
     * [The Port Limit](#the-port-limit)
+  - [Mapping Options](#mapping-options)
+    * [Port Limit Patch](#port-limit-patch)
+    * [USBInjectAll](#usbinjectall)
+    * [SSDT Replacement](#ssdt-replacement)
+    * [Injector Kext](#injector-kext)
     
 
 ***
@@ -160,6 +165,86 @@ Looking on, there are 2 entries for the Z370 chipset, but this is a bit differen
 
 Combine the two values (since they share the chipset controller), and we're sitting at a toasty **18 port personalities total**.  *This is over the 15 port limit!*
 
-*What happens if we're over the limit?*
+This is where mapping really shines, as it gives us a way to *pick* which ports we'd like to omit, thus keeping us under the limit in a controlled way.  Let's look at a few options for mapping next!
 
-~~More to come~~
+***
+
+### Mapping Options
+
+As USB mapping has been a necessity since 2015, there have been a few approaches put into place to try and mitigate issues.
+
+#### Port Limit Patch
+
+*You stand in the sun, the gentle breeze stealing some of the heat as you walk through the orchard picking apples - you've gotten at least 10lbs put together at this point - a solid amount!  Your hands shield your eyes from the sun as you stop to catch your breath; you catch a glimpse of your OS walking up as it hands you a bag for your haul of apples.  A measly 5lb bag... How can you fit 10lbs of apples in a 5lb bag?*
+
+One of the mitigations for the USB port limit is to, well, just patch it out.  Seems *epic*, no?  The port limit patches have been in circulation for some time and exist to lift the 15 port limit patch in only a few key places so all ports the OS can "see" are available.  OpenCore has a quirk that attempts to do this on any OS version called `XhciPortLimit`.
+
+*That sounds amazing, my 5lb bag is bigger on the inside than the outside?  Time to shove all these apples in!*
+
+While it sounds like the best-case solution, it does come with some drawbacks... The port limit is *hardcoded* in a ton of places all over the OS, and as we're only lifting it in a few, this causes access outside the bounds of a fixed array.  We're accessing things that shouldn't even be there, and that can cause some odd or unpredictable side effects.  Everyone who sees you skipping along with your bag of apples will *know* that it's only 5lbs, even if it's filled with 10lbs worth.
+
+Ultimately, it's considered *best practice* to **only** leverage the port limit patch for the mapping process, and then to disable it.
+
+**Pros:**
+
+* Gets around the 15 port limit
+
+**Cons:**
+
+* Changes with each OS version
+* Causes issues with fixed array bounds
+* Only patched in some spots
+* Can cause unpredictable side effects
+
+#### USBInjectAll
+
+Remember those *super cool* ports that were only sorta sometimes defined in firmware/ACPI?  Well - RehabMan saw an opportunity, and came up with a solution.  He wrote a kext that has a ton of different Intel chipset controller ports hardcoded and named (for real, it's [*a ton*](https://github.com/RehabMan/OS-X-USB-Inject-All/blob/master/USBInjectAll/USBInjectAll-Info.plist)).  What USBInjectAll tries to do is inject **all possible ports** for a given controller.  From there, you can determine which correspond to physical connections, decide which to keep, and discard whatever you need to bring you under the limit.
+
+**Pros:**
+
+* Has a ton of hardware pre-defined
+* Utilizes boot args to map in sweeps (USB 2 port personalities or USB 3 port personalities)
+* Can be customized with an SSDT
+
+**Cons:**
+
+* Another kext to load, with code to execute
+* Uses the IORegistry as "scratch paper"
+* No longer maintained
+* Cannot map third party or AMD ports
+
+#### SSDT Replacement
+
+If you feel confident in your [ACPI](https://uefi.org/sites/default/files/resources/ACPI_6_3_final_Jan30.pdf) abilities, you can redefine the RHUB and ports for whichever ports you'd like to utilize.  You can see an example of this in Osy's HaC-Mini repo [here](https://github.com/osy86/HaC-Mini/blob/master/ACPI/SSDT-Xhci.asl).
+
+**Pros:**
+
+* Clean - fewer kexts (especially to inject)
+* Potentially more durable if Apple changes its dependence on injectors
+
+**Cons:**
+
+* Tougher to accomplish - ACPI isn't many people's language of choice, and it can be tough to know where to find what you need, what to move over, etc.
+
+#### Injector Kext
+
+*So, we know we can leverage the port limit patch temporarily, we don't want to use the IORegistry as scratch paper, and we're all afraid of ACPI - what's the solution for us?*
+
+Well, we can actually accomplish this *the same way* Apple has!  Apple's injector kexts for USB just extend the functionality of a target kext by providing information on which ports should be there, the port types, and what SMBIOS these settings apply to.  Let's grab an example from Big Sur's `AppleUSBHostPlatformProperties.kext` for iMac17,1:
+
+![iMac17,1 Ports](images/imac171.png)
+
+Looking at this image, we can see that the `IONameMatch` corresponds to `XCH1`, which means the OS will look for that when running this SMBIOS, and allow the following ports - HS02, HS03, HS04, HS05, HS06, HS10, SSP1, SSP4, SSP5, SSP6.  Each of these ports are referenced by their `port` number (HS02 is port number `<02000000>` - which when converted from little-endian Hex to an integer is port 2).  They're also given a `UsbConnector` value - which corresponds to the type of connection they use, some common values are 0 for USB 2 physical ports, 3 for USB 3 physical ports, 255 for internal ports.
+
+We can actually leverage this template to create our own injector kext that maps the ports on our motherboard!  This is the approach we'll use for this guide, and the approach that USBMap uses.
+
+**Pros:**
+
+* Uses the same approach Apple does
+* No extra code to execute
+* Can be mostly automated
+
+**Cons:**
+
+* May not always be Apple's approach
+* Not as clean as an ACPI-only solution
