@@ -57,7 +57,7 @@ You can get the latest zip of this repo [here](https://github.com/corpnewt/USBMa
 
 ~~Scary~~ Word | Definition
 ---------- | ----------
-`Port` | A physical connection where you can plug a USB devices.  This could be a USB port on a case, a USB-C port, etc.
+`Port` | A physical connection where you can plug a USB device.  This could be a USB or USB-C port on your PC or Laptop, etc.
 `Header` | Similar to a `Port`, but typically on the motherboard itself.  These often take a special connector, and typically either have internal devices plugged in (AiO pump controllers, Bluetooth devices, etc), or extensions that lead to ports at the front of your case when used.
 `Chipset` | The hardware on the motherboard responsible for "data flow" between components (on my Maximus X Code, this is Intel's Z370 chipset).
 `Controller` | The hardware responsible for managing USB ports.
@@ -111,7 +111,7 @@ Uh... Let me set the scene...
 
 *Wait... what just happened?*
 
-One of the biggest changes to affect us Hackintoshers is that Apple now imposes a 15 USB port per controller limit.  At the surface, this doesn't sound terribly problematic.  Most motherboards have far fewer than 15 physical ports - not to mention some have third party chipsets that can share the load (since *each* controller has its own 15 port limit).
+Well, one of the biggest changes to affect us Hackintoshers is that Apple now imposes a 15 USB port per controller limit.  At the surface, this doesn't sound terribly problematic.  Most motherboards have far fewer than 15 physical ports - not to mention some have third party chipsets that can share the load (since *each* controller has its own 15 port limit).
 
 *Why 15?*
 
@@ -135,7 +135,7 @@ Let's have a look at the inside of a USB 3 port (image courtesy of usb.com):
 
 ![USB3](images/USB3.png)
 
-There's 9 pins in there - but they're setup very specifically.  A USB 2 or prior device would only leverage those top 4 pins, while a USB 3+ device actually takes advantage of those 4, *plus* the additional 5.  Every physical USB 3 port comes with *split personalities!*  When a USB 2 or prior device is plugged into a USB 3 port, it's *seen* as a USB 2 port personality - while a USB 3 device plugged into that same port is seen as a USB 3 port personality.  This means that every physical USB 3 port **takes up 2 of our limited 15 ports on that controller**.
+There are 9 pins in there - but they're setup very specifically.  A USB 2 or prior device would only leverage those top 4 pins, while a USB 3+ device actually takes advantage of those 4, *plus* the additional 5.  Every physical USB 3 port comes with *split personalities!*  When a USB 2 or prior device is plugged into a USB 3 port, it's *seen* as a USB 2 port personality - while a USB 3 device plugged into that same port is seen as a USB 3 port personality.  This means that every physical USB 3 port **takes up 2 of our limited 15 ports on that controller**.
 
 Let's look at the ports on my Asus Maximus X Code and break down how this all works out.  Per the [spec page](https://www.asus.com/us/Motherboards/ROG-MAXIMUS-X-CODE/specifications/), we can see the following listed under the *USB Ports* header:
 
