@@ -273,7 +273,7 @@ class USBMap:
             port = self.controllers[controller]["ports"][port_num]
             # The name of each entry should be "PortName - PortNum (Controller)"
             port_num = self.hex_dec(self.hex_swap(port["port"]))
-            entry_name = "{} | {} | {} | {}".format(port["name"],port["port"],port["address"],controller)
+            entry_name = "{} | {} | {} | {} | {}".format(port["name"],port["port"],port["address"],controller,self.controllers[controller]["parent"])
             port_dict[entry_name] = self.get_items_for_port(port["id"],indent=indent)
         return port_dict
 
@@ -358,7 +358,7 @@ class USBMap:
                     controllers[add_name]["ports"] = OrderedDict()
             controllers[add_name]["ports"][obj["port"]] = obj
         # Walk the controllers and retain the parent_name, acpi_path, and _ADR values
-        parent_name = acpi_path = acpi_addr = None
+        parent = parent_name = acpi_path = acpi_addr = None
         for acpi_line in self.ioreg:
             if "<class IOPlatformExpertDevice," in acpi_line:
                 self.smbios = acpi_line.split("+-o ")[1].split("<class")[0].strip()
@@ -368,8 +368,8 @@ class USBMap:
             elif "<class IOPCIDevice," in acpi_line:
                 # Let's get the parent name and acpi_addr - it'll look like @1F,3 - but we want it in 0x001F0003 format
                 try:
-                    parent_name = acpi_line.split("+-o ")[1].split("@")[0]
-                    temp_addr   = acpi_line.split("@")[1].split("  <class")[0]
+                    parent      = acpi_line.split("+-o ")[1].split("  <class")[0]
+                    parent_name,temp_addr = parent.split("@")
                     major,minor = temp_addr.split(",") if "," in temp_addr else temp_addr,"0"
                     acpi_addr   = "0x{}{}".format(major.rjust(4,"0"),minor.rjust(4,"0"))
                     acpi_addr   = "Zero" if acpi_addr == "0x00000000" else acpi_addr
@@ -381,6 +381,7 @@ class USBMap:
                 current_obj = acpi_line.split("+-o ")[1].split("  <class")[0]
             except: continue
             if current_obj in controllers:
+                controllers[current_obj]["parent"] = parent
                 controllers[current_obj]["parent_name"] = parent_name
                 controllers[current_obj]["acpi_path"] = acpi_path
                 controllers[current_obj]["acpi_address"] = acpi_addr if acpi_addr else "Zero"
@@ -469,7 +470,7 @@ class USBMap:
             new_entry = {
                 "CFBundleIdentifier": "com.apple.driver.AppleUSBMergeNub",
                 "IOClass": "AppleUSBMergeNub", # Consider AppleUSBHostMergeProperties on 10.15+
-                "IONameMatch": self.merged_list[x]["name"],
+                "IONameMatch": self.merged_list[x]["parent_name"],
                 # Provider class for OHCI, UHCI, EHCI, USB 2.0 hubs, and XHCI based on controller type - falls back to XHCI on no match
                 "IOProviderClass": next((y[1] for y in providers if y[0] in self.merged_list[x]["type"]),"AppleUSBXHCIPCI"),
                 "IOProviderMergeProperties": {
@@ -592,15 +593,15 @@ class USBMap:
             # Enumerate the ports
             last_cont = None
             for index,port in enumerate(check_ports):
-                n,p,a,c = port.split(" | ")
+                n,p,a,c,r = port.split(" | ")
                 if last_cont != c:
-                    print("    ----- {}{} Controller{} -----".format(self.cs,c,self.ce))
+                    print("    ----- {}{} Controller{} -----".format(self.cs,r,self.ce))
                     last_cont = c
                     extras += 1
                 print("{}{}. {}{}".format(
                     self.cs if any((port==x[1] for x in last_list)) else self.bs if len(total_ports.get(port,[])) else "",
                     index+1,
-                    " | ".join(port.split(" | ")[:-1]),
+                    " | ".join(port.split(" | ")[:-2]),
                     self.ce if len(total_ports.get(port,[])) else ""
                 ))
                 # Initialize the last controller seen
@@ -664,7 +665,7 @@ class USBMap:
         self.merged_list = self.merge_controllers()
         # Iterate the ports
         for index,port in port_list:
-            n,p,a,c = port.split(" | ")
+            n,p,a,c,r = port.split(" | ")
             assert c in self.merged_list # Verify the controller is there
             assert p in self.merged_list[c]["ports"] # Verify the port is also there
             # Locate the original
@@ -754,7 +755,7 @@ class USBMap:
             index = 0
             counts = OrderedDict()
             for cont in self.merged_list:
-                print("    ----- {}{} Controller{} -----".format(self.cs,cont,self.ce))
+                print("    ----- {}{} Controller{} -----".format(self.cs,self.merged_list[cont]["parent"],self.ce))
                 extras += 1
                 counts[cont] = 0
                 for port_num in self.merged_list[cont]["ports"]:
@@ -1063,20 +1064,21 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
         if not len(self.connected_controllers): print(" - {}None{}".format(self.rs,self.ce))
         else:
             # We have controllers - let's show them
-            pad = max(len(x) for x in self.connected_controllers)
-            names = [x.split("@")[0].upper() for x in self.connected_controllers]
+            pad = max(len(self.connected_controllers[x]["parent"]) for x in self.connected_controllers)
+            names = [self.connected_controllers[x]["parent_name"] for x in self.connected_controllers]
             for x in self.connected_controllers:
                 if "locationid" in self.connected_controllers[x]: continue # don't show hubs in this list
                 acpi = self.get_safe_acpi_path(self.connected_controllers[x].get("acpi_path","Unknown ACPI Path"))
-                name = x.split("@")[0].upper()
+                name = self.connected_controllers[x]["parent_name"]
+                par  = self.connected_controllers[x]["parent"]
                 if name in self.illegal_names or names.count(name) > 1:
                     self.controllers.pop(x,None) # Remove it from the controllers to map
-                    needs_rename.append(x)
-                    print(" - {}{}{} @ {} ({}{}{})".format(self.rs,x.rjust(pad),self.ce,acpi,self.rs,"Needs Rename" if name in self.illegal_names else "Not Unique",self.ce))
-                else: print(" - {}{}{} @ {}".format(self.cs,x.rjust(pad),self.ce,acpi))
+                    needs_rename.append(name)
+                    print(" - {}{}{} @ {} ({}{}{})".format(self.rs,par.rjust(pad),self.ce,acpi,self.rs,"Needs Rename" if name in self.illegal_names else "Not Unique",self.ce))
+                else: print(" - {}{}{} @ {}".format(self.cs,par.rjust(pad),self.ce,acpi))
                 if not "XHCI" in self.connected_controllers[x]["type"]: continue # Only check XHCI for RHUB paths
                 # Get the RHUB name - mirrors the controller name if actually "RHUB"
-                rhub_name = "RHUB" if name == self.connected_controllers[x]["parent_name"] else name
+                rhub_name = "RHUB" if x.split("@")[0].upper() == self.connected_controllers[x]["parent_name"] else x.split("@")[0].upper()
                 rhub_path = ".".join([acpi,rhub_name])
                 rhub_paths.append(rhub_path)
                 print("  \\-> {}RHUB{} @ {}".format(self.bs,self.ce,rhub_path))
