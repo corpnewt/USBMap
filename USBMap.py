@@ -895,11 +895,11 @@ class USBMap:
 
     def generate_renames(self, cont_list):
         used_names = [x for x in self.illegal_names]
-        used_names.extend([x.split("@")[0].upper() for x in self.connected_controllers])
+        used_names.extend([self.connected_controllers[x]["parent_name"].upper() for x in self.connected_controllers if self.connected_controllers[x].get("parent_name",None)])
         self.u.head("Rename Devices")
         print("")
         ssdt = """//
-// SSDT to rename PXSX, XHC1, EHC1, and EHC2 devices
+// SSDT to rename PXSX, XHC1, EHC1, EHC2, and other conflicting device names
 //
 DefinitionBlock ("", "SSDT", 2, "CORP", "UsbReset", 0x00001000)
 {
@@ -928,7 +928,7 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "UsbReset", 0x00001000)
             print(" - ACPI _ADR: {}".format(acpi_addr))
             print(" - Gathering unique name...")
             # Now we have the base - let's increment!
-            starting_number = 0 if con_type == "EHCI" else 2
+            starting_number = 1 if con_type == "EH01" else 2
             while True:
                 name = self.get_numbered_name(con_type,starting_number)
                 if not name in used_names:
@@ -943,6 +943,7 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "UsbReset", 0x00001000)
         # Add the parents as needed
         for parent in sorted(list(set(parents))):
             ssdt += "    External ({}, DeviceObj)\n".format(parent)
+        if len(parents): ssdt+="\n" # Add a newline after the parents for formatting
         for device in devices:
             # Get the info and build the SSDT
             acpi_path, name, acpi_addr, acpi_parent = device
@@ -1072,8 +1073,8 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
                 name = self.connected_controllers[x]["parent_name"]
                 par  = self.connected_controllers[x]["parent"]
                 if name in self.illegal_names or names.count(name) > 1:
+                    needs_rename.append(x)
                     self.controllers.pop(x,None) # Remove it from the controllers to map
-                    needs_rename.append(name)
                     print(" - {}{}{} @ {} ({}{}{})".format(self.rs,par.rjust(pad),self.ce,acpi,self.rs,"Needs Rename" if name in self.illegal_names else "Not Unique",self.ce))
                 else: print(" - {}{}{} @ {}".format(self.cs,par.rjust(pad),self.ce,acpi))
                 if not "XHCI" in self.connected_controllers[x]["type"]: continue # Only check XHCI for RHUB paths
