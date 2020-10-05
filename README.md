@@ -234,7 +234,7 @@ Well, we can actually accomplish this *the same way* Apple has!  Apple's injecto
 
 ![iMac17,1 Ports](images/imac171.png)
 
-Looking at this image, we can see that the `IONameMatch` corresponds to `XCH1`, which means the OS will look for that when running this SMBIOS, and allow the following ports - HS02, HS03, HS04, HS05, HS06, HS10, SSP1, SSP4, SSP5, SSP6.  Each of these ports are referenced by their `port` number (HS02 is port number `<02000000>` - which when converted from little-endian Hex to an integer is port 2).  They're also given a `UsbConnector` value - which corresponds to the type of connection they use, some common values are 0 for USB 2 physical ports, 3 for USB 3 physical ports, 255 for internal ports.
+Looking at this image, we can see that the `IONameMatch` corresponds to `XHC1`, which means the OS will look for that when running this SMBIOS, and allow the following ports - HS02, HS03, HS04, HS05, HS06, HS10, SSP1, SSP4, SSP5, SSP6.  Each of these ports are referenced by their `port` number (HS02 is port number `<02000000>` - which when converted from little-endian Hex to an integer is port 2).  They're also given a `UsbConnector` value - which corresponds to the type of connection they use, some common values are 0 for USB 2 physical ports, 3 for USB 3 physical ports, 255 for internal ports.
 
 We can actually leverage this template to create our own injector kext that maps the ports on our motherboard!  This is the approach we'll use for this guide, and the approach that USBMap uses.
 
