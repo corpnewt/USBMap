@@ -528,7 +528,7 @@ class USBMap:
         return re.sub(r'[^0-9A-Fa-f]+', '', value.lower().replace("0x", ""))
 
     def hex_to_data(self, value):
-        return plist.get_data(binascii.unhexlify(self.check_hex(value).encode("utf-8")))
+        return plist.wrap_data(binascii.unhexlify(self.check_hex(value).encode("utf-8")))
 
     def hex_swap(self, value):
         input_hex = self.check_hex(value)
