@@ -23,10 +23,14 @@ class USBMap:
         self.smbios = None
         self.os_build_version = "Unknown"
         self.os_version = "0.0.0"
-        self.usb_port = re.compile("Apple[a-zA-Z0-9]*USB\d*[A-Z]+Port")
+        self.usb_port = re.compile("Apple[a-zA-Z0-9]*USB\d*[A-Z]+Port,")
         self.usb_cont = re.compile("Apple[a-zA-Z0-9]*USB[A-Z]+,")
         self.usb_hub  = re.compile("Apple[a-zA-Z0-9]*USB\d+Hub,")
-        self.usb_hubp = re.compile("Apple[a-zA-Z0-9]*USB\d+HubPort")
+        self.usb_hubp = re.compile("Apple[a-zA-Z0-9]*USB\d+HubPort,")
+        self.usb_ext  = [
+            re.compile("<class IOBluetoothHostControllerUSBTransport,"), # Custom match for orphaned bt devices (Intel/Atheros/etc)
+            re.compile("^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,") # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
+        ] # List of extra objects to match against
         self.map_list = self.get_map_list()
         self.discover_wait = 5
         self.default_names = ("XHC1","EHC1","EHC2","PXSX")
@@ -87,7 +91,7 @@ class USBMap:
         return sorted(list(set(illegal_names)))
 
     def get_map_list(self):
-        map_list = [self.usb_cont,self.usb_port]
+        map_list = [self.usb_cont,self.usb_port]+self.usb_ext
         if self.map_hubs: map_list.extend([self.usb_hub,self.usb_hubp])
         return map_list
 
@@ -184,19 +188,18 @@ class USBMap:
 
     def get_by_ioreg(self):
         # Get a dict of all populated ports and their AppleUSBDevices
-        if os.path.exists("iousb.txt"):
-            with open("iousb.txt") as f:
-                ioreg = f.read()
+        if os.path.exists("ioreg.txt"):
+            with open("ioreg.txt","rb") as f:
+                ioreg = f.read().decode("utf-8",errors="ignore")
         else:
             ioreg = self.r.run({"args":["ioreg","-c","IOUSBDevice","-w0"]})[0]
-        ioreg = self.r.run({"args":["ioreg","-c","IOUSBDevice","-w0"]})[0]
         # Trim the list down to only what we want
-        valid = [x.replace("|"," ").replace("+-o ","").split(", registered")[0] for x in ioreg.split("\n") if any((y.search(x) for y in self.map_list)) or ("<class IOUSBHostDevice," in x and not "IOUSBHostDevice@" in x)]
+        valid = [x.replace("|"," ").replace("+-o ","").split(", registered")[0] for x in ioreg.split("\n") if any((y.search(x) for y in self.map_list))]
         # Initialize our dict
         ports = {"items":{}}
         for index,wline in enumerate(valid):
-            # Walk until we find an IOUSBHostDevice, then walk backward to figure out the pathing
-            if "IOUSBHostDevice" in wline:
+            # Walk until we find a valid device, then walk backward to figure out the pathing
+            if any((x.search(wline) for x in self.usb_ext)):
                 obj = self.get_obj_from_line(wline)
                 if not obj: continue # bad value - skip
                 path = [obj]
@@ -240,7 +243,9 @@ class USBMap:
             check_entry = top_level["items"][v]
             is_hub = self.usb_hub.search(check_entry.get("line","Unknown"))
             try: name,addr = check_entry.get("name","Unknown").split("@")
-            except: name=addr = "Unknown"
+            except:
+                addr = "Unknown"
+                name = check_entry.get("name",check_entry.get("type","Unknown"))
             value = (indent * level) + "- {}{}".format(name, " (HUB-{})".format(addr) if check_entry.get("map_hub",False) and is_hub else "")
             text.append(value)
             # Verify if we're on a hub and mapping those
@@ -293,9 +298,13 @@ class USBMap:
         assert self.ioreg != None # Error if we have no ioreg to iterate
         self.smbios = None
         controllers = OrderedDict()
-        ioreg = self.r.run({"args":["ioreg","-c","IOUSBDevice","-w0"]})[0]
+        if os.path.exists("ioreg.txt"):
+            with open("ioreg.txt","rb") as f:
+                ioreg = f.read().decode("utf-8",errors="ignore")
+        else:
+            ioreg = self.r.run({"args":["ioreg","-c","IOUSBDevice","-w0"]})[0]
         # Trim the list down to only what we want
-        valid = [x.replace("|"," ").replace("+-o ","").split(", registered")[0] for x in ioreg.split("\n") if any((y.search(x) for y in self.map_list)) or ("<class IOUSBHostDevice," in x and not "IOUSBHostDevice@" in x)]
+        valid = [x.replace("|"," ").replace("+-o ","").split(", registered")[0] for x in ioreg.split("\n") if any((y.search(x) for y in self.map_list))]
         for index,wline in enumerate(valid):
             # Walk until we find a port, then walk backward to figure out the controller
             if not (self.usb_port.search(wline) or self.usb_hubp.search(wline)): continue
@@ -328,9 +337,9 @@ class USBMap:
                 if check_obj["indent"] >= last_indent: continue # Only check for parent objects
                 # Reset our indent to ensure the next check
                 last_indent = check_obj["indent"]
-                if "IOUSBHostDevice" in line:
+                if any((x.search(line) for x in self.usb_ext)):
                     controller = last_hub = None
-                    break # Bail on IOUSBHostDevice
+                    break # Bail on valid device
                 elif self.usb_hub.search(line):
                     # Retain the last-seen hub device
                     last_hub = self.get_obj_from_line(line)
