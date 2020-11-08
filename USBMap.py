@@ -25,11 +25,12 @@ class USBMap:
         self.os_version = "0.0.0"
         self.usb_port = re.compile("Apple[a-zA-Z0-9]*USB\d*[A-Z]+Port,")
         self.usb_cont = re.compile("Apple[a-zA-Z0-9]*USB[A-Z]+,")
-        self.usb_hub  = re.compile("Apple[a-zA-Z0-9]*USB\d+[a-zA-z]*Hub,")
+        self.usb_hub  = re.compile("Apple[a-zA-Z0-9]*USB\d+[a-zA-Z]*Hub,")
         self.usb_hubp = re.compile("Apple[a-zA-Z0-9]*USB\d+HubPort,")
         self.usb_ext  = [
-            re.compile("<class IOBluetoothHostControllerUSBTransport,"), # Custom match for orphaned bt devices (Atheros)
-            re.compile("<class IntelBluetoothFirmware,"), # Custom match for orphaned bt (Intel)
+            re.compile("<class [a-zA-Z0-9]*BluetoothHostControllerUSBTransport,"),
+            #re.compile("<class IOBluetoothHostControllerUSBTransport,"), # Custom match for orphaned bt devices (Atheros)
+            #re.compile("<class IntelBluetoothFirmware,"), # Custom match for orphaned bt (Intel)
             re.compile("^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,"), # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
             self.usb_hub
         ] # List of extra objects to match against
