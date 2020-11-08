@@ -25,11 +25,12 @@ class USBMap:
         self.os_version = "0.0.0"
         self.usb_port = re.compile("Apple[a-zA-Z0-9]*USB\d*[A-Z]+Port,")
         self.usb_cont = re.compile("Apple[a-zA-Z0-9]*USB[A-Z]+,")
-        self.usb_hub  = re.compile("Apple[a-zA-Z0-9]*USB\d+Hub,")
+        self.usb_hub  = re.compile("Apple[a-zA-Z0-9]*USB\d+[a-zA-z]*Hub,")
         self.usb_hubp = re.compile("Apple[a-zA-Z0-9]*USB\d+HubPort,")
         self.usb_ext  = [
             re.compile("<class IOBluetoothHostControllerUSBTransport,"), # Custom match for orphaned bt devices (Intel/Atheros/etc)
-            re.compile("^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,") # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
+            re.compile("^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,"), # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
+            self.usb_hub
         ] # List of extra objects to match against
         self.map_list = self.get_map_list()
         self.discover_wait = 5
@@ -91,8 +92,8 @@ class USBMap:
         return sorted(list(set(illegal_names)))
 
     def get_map_list(self):
-        map_list = [self.usb_cont,self.usb_port]+self.usb_ext
-        if self.map_hubs: map_list.extend([self.usb_hub,self.usb_hubp])
+        map_list = [self.usb_cont,self.usb_port,self.usb_hub]+self.usb_ext
+        if self.map_hubs: map_list.append(self.usb_hubp)
         return map_list
 
     def get_matching_controller(self,controller_name,from_cont=None,into_cont=None):
@@ -246,7 +247,7 @@ class USBMap:
             except:
                 addr = "Unknown"
                 name = check_entry.get("name",check_entry.get("type","Unknown"))
-            value = (indent * level) + "- {}{}".format(name, " (HUB-{})".format(addr) if check_entry.get("map_hub",False) and is_hub else "")
+            value = (indent * level) + "- {}{}".format(name, " (HUB-{})".format(addr) if check_entry.get("map_hub",False) and self.map_hubs and is_hub else "")
             text.append(value)
             # Verify if we're on a hub and mapping those
             if check_entry.get("map_hub",False) and is_hub:
