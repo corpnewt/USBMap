@@ -282,7 +282,7 @@ main() {
 # Check to see if we need to force based on
 # macOS version. 10.15 has a dummy python3 version
 # that can trip up some py3 detection in other scripts.
-set_use_py3_if "3" "10.15" "FORCE"
+# set_use_py3_if "3" "10.15" "FORCE"
 downloaded="FALSE"
 trap cleanup EXIT
 main
