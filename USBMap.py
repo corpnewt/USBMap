@@ -18,7 +18,6 @@ class USBMap:
         self.i = ioreg.IOReg()
         self.re = reveal.Reveal()
         self.map_hubs = False # Enable to show hub ports/devices in mapping
-        self.map_xhci_hubs = False # Enable to create maps for USB 2 hubs on XHCI controllers
         self.controllers = None
         self.smbios = None
         self.os_build_version = "Unknown"
@@ -26,15 +25,13 @@ class USBMap:
         self.usb_port = re.compile("Apple[a-zA-Z0-9]*USB\d*[A-Z]+Port,")
         self.usb_cont = re.compile("Apple[a-zA-Z0-9]*USB[A-Z]+,")
         self.usb_hub  = re.compile("Apple[a-zA-Z0-9]*USB\d+[a-zA-Z]*Hub,")
-        self.usb_hubp = re.compile("Apple[a-zA-Z0-9]*USB\d+HubPort,")
+        self.usb_hubp = re.compile("Apple[a-zA-Z0-9]*USB\d+[a-zA-Z]*HubPort,")
         self.usb_ext  = [
             re.compile("<class [a-zA-Z0-9]*BluetoothHostControllerUSBTransport,"),
-            #re.compile("<class IOBluetoothHostControllerUSBTransport,"), # Custom match for orphaned bt devices (Atheros)
-            #re.compile("<class IntelBluetoothFirmware,"), # Custom match for orphaned bt (Intel)
-            re.compile("^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,"), # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
-            self.usb_hub
+            re.compile("^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,") # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
         ] # List of extra objects to match against
         self.map_list = self.get_map_list()
+        self.port_map_list = self.get_port_map_list()
         self.discover_wait = 5
         self.default_names = ("XHC1","EHC1","EHC2","PXSX")
         self.cs = u"\u001b[32;1m"
@@ -95,6 +92,11 @@ class USBMap:
 
     def get_map_list(self):
         map_list = [self.usb_cont,self.usb_port,self.usb_hub]+self.usb_ext
+        if self.map_hubs: map_list.append(self.usb_hubp)
+        return map_list
+
+    def get_port_map_list(self):
+        map_list = [self.usb_port]
         if self.map_hubs: map_list.append(self.usb_hubp)
         return map_list
 
@@ -214,14 +216,12 @@ class USBMap:
                     if obj["indent"] >= last_indent: continue # Only check for parent objects
                     # Reset our indent to ensure the next check
                     last_indent = obj["indent"]
-                    # if self.usb_cont.search(line) or self.usb_port.search(line) or self.usb_hub.search(line) or self.usb_hubp.search(line):
                     # We got a USB port, hub, or controller - add it
                     path.append(obj)
                     if self.usb_cont.search(line): break # We hit a controller, break out to avoid nesting under another
                 # Reverse the path order to reflect top-level elements
                 path = path[::-1]
-                if self.map_xhci_hubs: map_hub = True # Always allow for debugging
-                else: map_hub = not any(("XHCI" in x["type"] for x in path)) # Aggregate XHCI hubs under the parent ports
+                map_hub = not any(("XHCI" in x["type"] for x in path)) # Aggregate XHCI hubs under the parent ports
                 # Walk the paths, and add them by id to the ports dict
                 last_root = ports
                 # Iterate each path element and ensure it exists in the ports dict
@@ -249,10 +249,10 @@ class USBMap:
             except:
                 addr = "Unknown"
                 name = check_entry.get("name",check_entry.get("type","Unknown"))
-            value = (indent * level) + "- {}{}".format(name, " (HUB-{})".format(addr) if check_entry.get("map_hub",False) and self.map_hubs and is_hub else "")
+            value = (indent * level) + "- {}{}".format(name, " (HUB-{})".format(addr) if is_hub and check_entry.get("map_hub",False) and self.map_hubs else "")
             text.append(value)
             # Verify if we're on a hub and mapping those
-            if check_entry.get("map_hub",False) and is_hub and self.map_hubs:
+            if is_hub and check_entry.get("map_hub",False) and self.map_hubs:
                 # Got a hub - this will be mapped elsewhere
                 continue
             # Check if we have items to map
@@ -310,7 +310,7 @@ class USBMap:
         valid = [x.replace("|"," ").replace("+-o ","").split(", registered")[0] for x in ioreg.split("\n") if any((y.search(x) for y in self.map_list))]
         for index,wline in enumerate(valid):
             # Walk until we find a port, then walk backward to figure out the controller
-            if not (self.usb_port.search(wline) or self.usb_hubp.search(wline)): continue
+            if not any((x.search(wline) for x in self.port_map_list)): continue
             # We got a port - go backward until we find the controller/hub, but outright bail if we find a device
             obj = self.get_obj_from_line(wline)
             if not obj: continue # bad value - skip
@@ -359,7 +359,7 @@ class USBMap:
                 controllers[cont_full]["name"] = cont_name
                 controllers[cont_full]["address"] = cont_addr
                 controllers[cont_full]["ports"] = OrderedDict()
-            if last_hub and (not "XHCI" in controller["type"] or self.map_xhci_hubs):
+            if last_hub and not "XHCI" in controller["type"]:
                 # We got a hub that we can map
                 add_name = "HUB-{}".format(last_hub["name"].split("@")[-1])
                 if not add_name in controllers:
@@ -368,6 +368,8 @@ class USBMap:
                     controllers[add_name]["name"],controllers[add_name]["address"] = last_hub["name"].split("@")
                     controllers[add_name]["locationid"] = self.hex_dec(last_hub["name"].split("@")[-1]) # Only add the location for USB 2 HUBs
                     controllers[add_name]["ports"] = OrderedDict()
+                    controllers[add_name]["parent"] = "HUB-"+controllers[add_name]["address"]
+                    controllers[add_name]["parent_name"] = controller["name"] if controller else "HUB"
             controllers[add_name]["ports"][obj["port"]] = obj
         # Walk the controllers and retain the parent_name, acpi_path, and _ADR values
         parent = parent_name = acpi_path = acpi_addr = None
@@ -1074,12 +1076,13 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
         print("")
         needs_rename = []
         rhub_paths   = []
-        if not len(self.connected_controllers): print(" - {}None{}".format(self.rs,self.ce))
+        c_check      = [x for x in self.connected_controllers if not self.connected_controllers[x].get("is_hub",False)]
+        if not len(c_check): print(" - {}None{}".format(self.rs,self.ce))
         else:
             # We have controllers - let's show them
-            pad = max(len(self.connected_controllers[x]["parent"]) for x in self.connected_controllers)
-            names = [self.connected_controllers[x]["parent_name"] for x in self.connected_controllers]
-            for x in self.connected_controllers:
+            pad = max(len(self.connected_controllers[x]["parent"]) for x in c_check)
+            names = [self.connected_controllers[x]["parent_name"] for x in c_check]
+            for x in c_check:
                 if "locationid" in self.connected_controllers[x]: continue # don't show hubs in this list
                 acpi = self.get_safe_acpi_path(self.connected_controllers[x].get("acpi_path","Unknown ACPI Path"))
                 name = self.connected_controllers[x]["parent_name"]
