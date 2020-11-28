@@ -252,7 +252,7 @@ class USBMap:
             value = (indent * level) + "- {}{}".format(name, " (HUB-{})".format(addr) if check_entry.get("map_hub",False) and self.map_hubs and is_hub else "")
             text.append(value)
             # Verify if we're on a hub and mapping those
-            if check_entry.get("map_hub",False) and is_hub:
+            if check_entry.get("map_hub",False) and is_hub and self.map_hubs:
                 # Got a hub - this will be mapped elsewhere
                 continue
             # Check if we have items to map
