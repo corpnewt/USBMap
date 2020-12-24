@@ -574,7 +574,17 @@ class USBMap:
                 if "comment" in port:
                     new_entry["IOProviderMergeProperties"]["ports"][port_name]["Comment"] = port["comment"]
             new_entry["IOProviderMergeProperties"]["port-count"] = top_data # Keep track of the highest port number used
-            output_plist["IOKitPersonalities"][self.smbios+"-"+x.split("@")[0]]= new_entry
+            # Ensure we have a unique entry name
+            entry_name = self.smbios+"-"+x.split("@")[0]
+            entry_num = 0
+            while True:
+                test_name = entry_name
+                if entry_num > 0: test_name += "-{}".format(entry_num)
+                if not test_name in output_plist["IOKitPersonalities"]:
+                    entry_name = test_name
+                    break
+                entry_num += 1
+            output_plist["IOKitPersonalities"][entry_name]= new_entry
         return output_plist
 
     # Helper methods
