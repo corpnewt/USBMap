@@ -637,8 +637,10 @@ class USBMap:
                 last_ports[x] = [y for y in check_ports[x]]
             # Enumerate the ports
             last_cont = None
+            cont_count = {}
             for index,port in enumerate(check_ports):
                 n,p,a,c,r = port.split(" | ")
+                if len(total_ports.get(port,[])): cont_count[c] = cont_count.get(c,0)+1
                 if last_cont != c:
                     print("    ----- {}{} Controller{} -----".format(self.cs,r,self.ce))
                     last_cont = c
@@ -671,7 +673,7 @@ class USBMap:
             print("Populated:")
             pop_list = []
             for cont in self.controllers:
-                count = self.get_populated_count_for_controller(cont)
+                count = cont_count.get(cont,0)
                 pop_list.append("{}{}: {:,}{}".format(
                     self.cs if 0 < count < 16 else self.rs,
                     cont.split("@")[0],
