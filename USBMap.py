@@ -162,14 +162,25 @@ class USBMap:
             print("Could not save to USB.plist! {}".format(e))
         return False
 
+    def sanitize_ioreg(self,ioreg):
+        # Walks the passed ioreg and attempts to fix devices with newlines in their names
+        # by replacing them with spaces
+        return_list = isinstance(ioreg,list)
+        if return_list: ioreg = "\n".join(ioreg)
+        new_ioreg = ""
+        combine_last = False
+        for line in ioreg.split("\n"):
+            new_ioreg += line+(" " if "+-o" in line and not "  <class" in line else "\n")
+        return new_ioreg.split("\n") if return_list else new_ioreg
+
     def populate_ioreg(self):
         if os.path.exists("ioreg.txt"):
             with open("ioreg.txt","rb") as f:
                 ioreg = f.read().decode("utf-8",errors="ignore").split("\n")
                 self.i.ioreg = {"IOService":ioreg}
-            return ioreg
         else:
-            return self.i.get_ioreg() 
+            ioreg = self.i.get_ioreg()
+        return self.sanitize_ioreg(ioreg)
 
     def check_controllers(self):
         if not self.controllers: self.controllers = self.populate_controllers()
@@ -203,6 +214,7 @@ class USBMap:
                 ioreg = f.read().decode("utf-8",errors="ignore")
         else:
             ioreg = self.r.run({"args":["ioreg","-c","IOUSBDevice","-w0"]})[0]
+        ioreg = self.sanitize_ioreg(ioreg)
         # Trim the list down to only what we want
         valid = [x.replace("|"," ").replace("+-o ","").split(", registered")[0] for x in ioreg.split("\n") if any((y.search(x) for y in self.map_list))]
         # Initialize our dict
