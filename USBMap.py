@@ -298,7 +298,7 @@ class USBMap:
             port = self.controllers[controller]["ports"][port_num]
             # The name of each entry should be "PortName - PortNum (Controller)"
             port_num = self.hex_dec(self.hex_swap(port["port"]))
-            entry_name = "{} | {} | {} | {} | {}".format(port["name"],port["port"],port["address"],controller,self.controllers[controller]["parent"])
+            entry_name = "{} | {} | {} | {} | {} | {}".format(port["name"],port["type"],port["port"],port["address"],controller,self.controllers[controller]["parent"])
             port_dict[entry_name] = self.get_items_for_port(port["id"],indent=indent)
         return port_dict
 
@@ -639,7 +639,7 @@ class USBMap:
             last_cont = None
             cont_count = {}
             for index,port in enumerate(check_ports):
-                n,p,a,c,r = port.split(" | ")
+                n,t,p,a,c,r = port.split(" | ")
                 if len(total_ports.get(port,[])): cont_count[c] = cont_count.get(c,0)+1
                 if last_cont != c:
                     print("    ----- {}{} Controller{} -----".format(self.cs,r,self.ce))
@@ -712,7 +712,7 @@ class USBMap:
         self.merged_list = self.merge_controllers()
         # Iterate the ports
         for index,port in port_list:
-            n,p,a,c,r = port.split(" | ")
+            n,t,p,a,c,r = port.split(" | ")
             assert c in self.merged_list # Verify the controller is there
             assert p in self.merged_list[c]["ports"] # Verify the port is also there
             # Locate the original
@@ -816,8 +816,8 @@ class USBMap:
                         "#" if port.get("enabled",False) else " ",
                         index,
                         port["name"],
-                        port["address"],
                         port["type"],
+                        port["address"],
                         usb_connector,
                         self.ce if port.get("enabled",False) else ""
                     ))
