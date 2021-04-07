@@ -811,12 +811,13 @@ class USBMap:
                     ports.append(port)
                     if port.get("enabled",False): counts[cont] += 1 # Increment the port counter for the selected controller
                     usb_connector = port.get("type_override", 3 if "XHCI" in self.merged_list[cont]["type"] else 0)
-                    print("{}[{}] {}. {} | {} | {} | Type {}{}".format(
+                    print("{}[{}] {}. {} | {} | {} | {} | Type {}{}".format(
                         self.bs if port.get("enabled",False) else "",
                         "#" if port.get("enabled",False) else " ",
                         index,
                         port["name"],
                         port["type"],
+                        port["port"],
                         port["address"],
                         usb_connector,
                         self.ce if port.get("enabled",False) else ""
