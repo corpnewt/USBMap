@@ -673,10 +673,12 @@ class USBMap:
             print("Populated:")
             pop_list = []
             for cont in self.controllers:
+                try: parent = self.controllers[cont]["parent"]
+                except: parent = cont # Fall back on the original name
                 count = cont_count.get(cont,0)
                 pop_list.append("{}{}: {:,}{}".format(
                     self.cs if 0 < count < 16 else self.rs,
-                    cont.split("@")[0],
+                    parent.split("@")[0],
                     count,
                     self.ce
                 ))
@@ -833,9 +835,11 @@ class USBMap:
             print("Populated:")
             pop_list = []
             for cont in counts:
+                try: parent = self.merged_list[cont]["parent"]
+                except: parent = cont # Fall back on the original name
                 pop_list.append("{}{}: {:,}{}".format(
                     self.cs if 0 < counts[cont] < 16 else self.rs,
-                    cont.split("@")[0],
+                    parent.split("@")[0],
                     counts[cont],
                     self.ce
                 ))
