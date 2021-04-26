@@ -1,6 +1,7 @@
 import os, sys, re, json, binascii, shutil
 from Scripts import run, utils, ioreg, plist, reveal
 from collections import OrderedDict
+from datetime import datetime
 
 class USBMap:
     def __init__(self):
@@ -47,6 +48,8 @@ class USBMap:
         self.rsdt_path = os.path.join(self.output,"SSDT-RHUB-Reset.dsl")
         self.kext_path = os.path.join(self.output,"USBMap.kext")
         self.info_path = os.path.join(self.kext_path,"Contents","Info.plist")
+        self.legacy_kext_path = os.path.join(self.output,"USBMapLegacy.kext")
+        self.legacy_info_path = os.path.join(self.legacy_kext_path,"Contents","Info.plist")
         self.oc_patches = os.path.join(self.output,"patches_OC.plist")
         self.clover_patches = os.path.join(self.output,"patches_Clover.plist")
         self.merged_list = OrderedDict()
@@ -439,7 +442,8 @@ class USBMap:
             controllers[controller]["ioservice_path"] = path
         return controllers
 
-    def build_kext(self):
+    def build_kext(self,modern=True,legacy=False):
+        if not modern and not legacy: return # wut - shouldn't happen
         self.u.resize(80, 24)
         empty_controllers = []
         skip_empty = True
@@ -471,25 +475,32 @@ class USBMap:
                     skip_empty = e.lower() in ("i","ignore")
                     break
         # Build the kext
-        self.u.head("Build USBMap.kext")
+        title = []
+        if modern: title.append(os.path.basename(self.kext_path))
+        if legacy: title.append(os.path.basename(self.legacy_kext_path))
+        self.u.head("Build {}".format(" and ".join(title)))
         print("")
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
-        print("Generating Info.plist...")
-        info_plist = self.build_info_plist(skip_empty=skip_empty)
-        if os.path.exists(self.kext_path):
-            print("Located existing USBMap.kext - removing...")
-            shutil.rmtree(self.kext_path,ignore_errors=True)
-        print("Creating bundle structure...")
-        os.makedirs(os.path.join(self.kext_path,"Contents"))
-        print("Writing Info.plist...")
-        with open(self.info_path,"wb") as f:
-            plist.dump(info_plist,f)
+        print("Generating Info.plist{}...".format("" if len(title)==1 else "s"))
+        if modern: self.check_and_build(self.kext_path,self.info_path,skip_empty=skip_empty,legacy=False)
+        if legacy: self.check_and_build(self.legacy_kext_path,self.legacy_info_path,skip_empty=skip_empty,legacy=True)
         print("Done.")
         print("")
-        self.re.reveal(self.kext_path,True)
+        self.re.reveal(self.kext_path if modern else self.legacy_kext_path,True)
         self.u.grab("Press [enter] to return to the menu...")
 
-    def build_info_plist(self,skip_empty=True):
+    def check_and_build(self,kext_path,info_path,skip_empty=True,legacy=False):
+        info_plist = self.build_info_plist(skip_empty=skip_empty,legacy=legacy)
+        if os.path.exists(kext_path):
+            print("Located existing {} - removing...".format(os.path.basename(kext_path)))
+            shutil.rmtree(kext_path,ignore_errors=True)
+        print("Creating bundle structure...")
+        os.makedirs(os.path.join(kext_path,"Contents"))
+        print("Writing Info.plist...")
+        with open(info_path,"wb") as f:
+            plist.dump(info_plist,f)
+
+    def build_info_plist(self,skip_empty=True,legacy=False):
         output_plist = {
             "CFBundleDevelopmentRegion": "English",
             "CFBundleGetInfoString": "v1.0",
@@ -518,8 +529,8 @@ class USBMap:
                 ("XHCI","AppleUSBXHCIPCI")
             )
             new_entry = {
-                "CFBundleIdentifier": "com.apple.driver.AppleUSBMergeNub",
-                "IOClass": "AppleUSBMergeNub", # Consider AppleUSBHostMergeProperties on 10.15+
+                "CFBundleIdentifier": "com.apple.driver.AppleUSBMergeNub" if legacy else "com.apple.driver.AppleUSBHostMergeProperties",
+                "IOClass": "AppleUSBMergeNub" if legacy else "AppleUSBHostMergeProperties", # Consider AppleUSBHostMergeProperties on 10.15+
                 "IONameMatch": self.merged_list[x]["parent_name"],
                 # Provider class for OHCI, UHCI, EHCI, USB 2.0 hubs, and XHCI based on controller type - falls back to XHCI on no match
                 "IOProviderClass": next((y[1] for y in providers if y[0] in self.merged_list[x]["type"]),"AppleUSBXHCIPCI"),
@@ -789,7 +800,7 @@ class USBMap:
 
     def edit_plist(self):
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
-        pad = 24
+        pad = 28
         while True:
             self.save_plist()
             ports = [] # An empty list for index purposees
@@ -845,7 +856,11 @@ class USBMap:
                 ))
             print(", ".join(pop_list))
             print("")
-            print("K. Build USBMap.kext")
+            print("K. Build USBMap.kext (Catalina And Newer)")
+            print("   - AppleUSBHostMergeProperties, MinKernel=19.0.0")
+            print("L. Build USBMapLegacy.kext (Mojave And Older)")
+            print("   - AppleUSBMergeNub, MaxKernel=18.9.9")
+            print("B. Build Both USBMap.kext and USBMapLegacy.kext")
             print("A. Select All")
             print("N. Select None")
             print("P. Enable All Populated Ports")
@@ -872,7 +887,11 @@ class USBMap:
             elif menu.lower() == "m":
                 return
             elif menu.lower() == "k":
-                self.build_kext()
+                self.build_kext(modern=True,legacy=False)
+            elif menu.lower() == "l":
+                self.build_kext(modern=False,legacy=True)
+            elif menu.lower() == "b":
+                self.build_kext(modern=True,legacy=True)
             elif menu.lower() in ("n","a"):
                 # Iterate all ports and deselect them
                 for port in ports:
@@ -1226,6 +1245,8 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
             self.ce
         ))
         print("R. Reset All Detected Ports")
+        if os.path.exists(self.usb_list):
+            print("B. Backup Detected Port Plist")
         if needs_rename:
             print("A. Generate ACPI Renames For Conflicting Controllers")
             print("L. Generate Plist Renames For Conflicting Controllers")
@@ -1249,6 +1270,12 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
             except Exception as e:
                 print("Failed to remove USB.plist! {}".format(e))
             return
+        elif menu.lower() == "b" and os.path.exists(self.usb_list):
+            if not os.path.exists(self.output): os.mkdir(self.output)
+            output = os.path.join(self.output,"USB-{}.plist".format(datetime.today().strftime("%Y-%m-%d %H.%M")))
+            try: shutil.copyfile(self.usb_list,output)
+            except: pass
+            if os.path.exists(output): self.re.reveal(output,True)
         elif menu.lower() == "d":
             if not len(self.controllers):
                 self.u.head("No Valid Controllers")
