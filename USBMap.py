@@ -121,8 +121,9 @@ class USBMap:
         # Let's try by matching the ACPI path?
         cont_adj = next((x for x in into_cont if from_cont[controller_name].get("acpi_path",None) == into_cont[x].get("acpi_path","Unknown")),None)
         if cont_adj: return cont_adj
-        if controller_name in into_cont:
-            return controller_name # The same name@address exist - should be the same entry
+        # Don't match name@address anymore due to hugely hit-or-miss nature
+        """if controller_name in into_cont:
+            return controller_name""" # The same name@address exist - should be the same entry
         # Didn't match - we can't rely on just names as there might be multiple PXSX devices
         return None
 
@@ -808,7 +809,7 @@ class USBMap:
 
     def edit_plist(self):
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
-        pad = 29
+        pad = 28
         while True:
             self.u.resize(80, 24) # Resize smaller to force proper positioning
             self.save_plist()
