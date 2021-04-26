@@ -121,10 +121,10 @@ class USBMap:
         # Let's try by matching the ACPI path?
         cont_adj = next((x for x in into_cont if from_cont[controller_name].get("acpi_path",None) == into_cont[x].get("acpi_path","Unknown")),None)
         if cont_adj: return cont_adj
-        # Try by name only?
         if controller_name in into_cont:
             return controller_name # The same name@address exist - should be the same entry
-        return next((x for x in into_cont if controller_name.split("@")[0] == x.split("@")[0]),None)
+        # Didn't match - we can't rely on just names as there might be multiple PXSX devices
+        return None
 
     def merge_controllers(self,from_cont=None,into_cont=None):
         self.check_controllers()
@@ -139,10 +139,7 @@ class USBMap:
             if not cont_adj: continue
             # Ensure we have a ports dict
             if not "ports" in into_cont[cont_adj]: into_cont[cont_adj]["ports"] = {}
-            # Walk its settings and add them
-            for key in from_cont[cont]:
-                if key == "ports": continue # Skip this for afterward to merge the ports individually
-                into_cont[cont_adj][key] = from_cont[cont][key] # Force override and stuff
+            # Only pull saved items into the new dict
             for port_num in from_cont[cont]["ports"]:
                 port = from_cont[cont]["ports"][port_num]
                 mort = into_cont[cont_adj]["ports"].get(port_num,{})
@@ -671,7 +668,13 @@ class USBMap:
                 if last_cont == None: last_cont = c
                 original = self.controllers[c]["ports"][p]
                 merged_c = self.get_matching_controller(c,self.controllers,self.merged_list) # Try to get the merged version for comments, if possible
-                merged_p = self.merged_list.get(merged_c,{}).get("ports",{}).get(p,{}) if merged_c else {}
+                if not merged_c: merged_c = c # Ensure we have a controller if there wasn't a matching one
+                # Ensure we have self.merged_list[merged_c]["ports"][p] == {} at least
+                last_step = self.merged_list
+                for step in (merged_c,"ports",p):
+                    if not step in last_step: last_step[step] = {}
+                    last_step = last_step[step]
+                merged_p = self.merged_list[merged_c]["ports"][p]
                 # Save the items if there were any
                 if len(total_ports.get(port,[])):
                     new_items = original.get("items",[])
