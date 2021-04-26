@@ -808,8 +808,9 @@ class USBMap:
 
     def edit_plist(self):
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
-        pad = 28
+        pad = 29
         while True:
+            self.u.resize(80, 24) # Resize smaller to force proper positioning
             self.save_plist()
             ports = [] # An empty list for index purposees
             extras = 0
@@ -873,16 +874,16 @@ class USBMap:
             print("N. Select None")
             print("P. Enable All Populated Ports")
             print("D. Disable All Empty Ports")
+            print("C. Clear Detected Items")
             print("T. Show Types")
             print("")
             print("M. Main Menu")
             print("Q. Quit")
             print("")
             print("- Select ports to toggle with comma-delimited lists (eg. 1,2,3,4,5)")
+            print("- Set a range of ports using this formula R:1-15:On/Off")
             print("- Change types using this formula T:1,2,3,4,5:t where t is the type")
-            print("- Set custom names using this formula C:1:Name - Name = None to clear")
-            print("- Enabled/Disable all controller ports with U:Cont:e where e is On/Off")
-            print("    and Cont is the controller@address (eg U:XHC@14000000:On)")
+            print("- Set custom names using this formula C:1,2:Name - Name = None to clear")
             temp_h = index+1+extras+pad
             h = temp_h if temp_h > 24 else 24
             self.u.resize(80, h)
@@ -913,9 +914,26 @@ class USBMap:
                 # Deselect any empty ports
                 for port in ports:
                     if not port.get("items",[]): port["enabled"] = False
+            elif menu.lower() == "c":
+                # Clear items from all ports
+                for port in ports: port["items"] = []
             elif menu.lower() == "t":
                 self.print_types()
                 continue
+            if menu[0].lower() == "r":
+                # Should be a range
+                try:
+                    nums = [int(x) for x in menu.split(":")[1].replace(" ","").split("-")]
+                    a,b = nums[0]-1,nums[-1]-1 # Get the first and last - then determine which is larger
+                    if b < a: a,b = b,a # Flip them around if need be
+                    if not all((0 <= x < len(ports) for x in (a,b))): continue # Out of bounds, skip
+                    # Ge the on/off value
+                    toggle = menu.split(":")[-1].lower()
+                    if not toggle in ("on","off"): continue # Invalid - skip
+                    for x in range(a,b+1):
+                        ports[x]["enabled"] = toggle == "on"
+                except:
+                    continue
             # Check if we need to toggle
             if menu[0].lower() == "t":
                 # We should have a type
@@ -940,18 +958,6 @@ class USBMap:
                         # Valid index
                         if name.lower() == "none": ports[x].pop("comment",None)
                         else: ports[x]["comment"] = name
-                except:
-                    continue
-            elif menu[0].lower() == "u":
-                # We should have a controller name, and on/off
-                try:
-                    cont = menu.split(":")[1]
-                    toggle = menu.split(":")[-1].lower()
-                    cont = next((x for x in self.merged_list if x.lower() == cont.lower())) # Normalize case
-                    if not cont in self.merged_list or not toggle in ("on","off"): continue # Formatted wrong, ignore it
-                    for port_num in self.merged_list[cont].get("ports",{}):
-                        port = self.merged_list[cont]["ports"][port_num]
-                        port["enabled"] = toggle == "on"
                 except:
                     continue
             else:
