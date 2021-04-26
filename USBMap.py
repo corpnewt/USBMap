@@ -110,19 +110,20 @@ class USBMap:
         from_cont = from_cont if from_cont != None else self.merged_list
         into_cont = into_cont if into_cont != None else self.controllers
         assert controller_name in from_cont # Can't match if it doesn't exist!
-        if controller_name in into_cont:
-            return controller_name # The same name@address exist - should be the same entry
+        # We try matching by most specific to most general, location -> ioservice -> acpi -> name@addr -> name
         if "locationid" in from_cont[controller_name]:
             # If it has a location - we want to match that
             cont_adj = next((x for x in into_cont if from_cont[controller_name]["locationid"] == into_cont[x].get("locationid",None)),None)
             if cont_adj: return cont_adj
-        # Let's try by matching the IOService path?
+        # Let's try by matching the IOService path? - This is rather specific and might change.
         cont_adj = next((x for x in into_cont if from_cont[controller_name].get("ioservice_path",None) == into_cont[x].get("ioservice_path","Unknown")),None)
         if cont_adj: return cont_adj
         # Let's try by matching the ACPI path?
         cont_adj = next((x for x in into_cont if from_cont[controller_name].get("acpi_path",None) == into_cont[x].get("acpi_path","Unknown")),None)
         if cont_adj: return cont_adj
         # Try by name only?
+        if controller_name in into_cont:
+            return controller_name # The same name@address exist - should be the same entry
         return next((x for x in into_cont if controller_name.split("@")[0] == x.split("@")[0]),None)
 
     def merge_controllers(self,from_cont=None,into_cont=None):
@@ -136,13 +137,15 @@ class USBMap:
             # the users has setup unique names for all controllers first.
             cont_adj = self.get_matching_controller(cont,from_cont,into_cont)
             if not cont_adj: continue
+            # Ensure we have a ports dict
+            if not "ports" in into_cont[cont_adj]: into_cont[cont_adj]["ports"] = {}
             # Walk its settings and add them
             for key in from_cont[cont]:
                 if key == "ports": continue # Skip this for afterward to merge the ports individually
                 into_cont[cont_adj][key] = from_cont[cont][key] # Force override and stuff
             for port_num in from_cont[cont]["ports"]:
                 port = from_cont[cont]["ports"][port_num]
-                mort = into_cont[cont_adj].get("ports",{}).get(port_num,{})
+                mort = into_cont[cont_adj]["ports"].get(port_num,{})
                 # Let's walk the keys
                 for key in port:
                     # Merge item lists as sets to avoid duplicates
@@ -150,8 +153,10 @@ class USBMap:
                         new_items = mort.get("items",[])
                         new_items.extend([x for x in port["items"] if not x in mort.get("items",[])])
                         mort["items"] = new_items
-                    elif key in ("name","id"): continue # Skip the name and id to always use the most recent
+                    elif key in ("name","id") and key in mort: continue # Skip the name and id to always use the most recent
                     else: mort[key] = port[key]
+                # Reset the into_cont port
+                into_cont[cont_adj]["ports"][port_num] = mort
         return into_cont
 
     def save_plist(self,controllers=None):
@@ -297,7 +302,7 @@ class USBMap:
         self.check_controllers()
         assert controller in self.controllers # Error if the controller doesn't exist
         port_dict = OrderedDict()
-        for port_num in self.controllers[controller]["ports"]:
+        for port_num in sorted(self.controllers[controller]["ports"]):
             port = self.controllers[controller]["ports"][port_num]
             # The name of each entry should be "PortName - PortNum (Controller)"
             port_num = self.hex_dec(self.hex_swap(port["port"]))
@@ -818,7 +823,7 @@ class USBMap:
                 print("    ----- {}{} Controller{} -----".format(self.cs,self.merged_list[cont]["parent"],self.ce))
                 extras += 1
                 counts[cont] = 0
-                for port_num in self.merged_list[cont]["ports"]:
+                for port_num in sorted(self.merged_list[cont]["ports"]):
                     index += 1
                     port = self.merged_list[cont]["ports"][port_num]
                     ports.append(port)
