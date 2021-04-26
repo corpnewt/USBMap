@@ -24,7 +24,7 @@ class USBMap:
         self.os_build_version = "Unknown"
         self.os_version = "0.0.0"
         self.usb_port = re.compile("Apple[a-zA-Z0-9]*USB\d*[A-Z]+Port,")
-        self.usb_cont = re.compile("Apple[a-zA-Z0-9]*USB[A-Z]+,")
+        self.usb_cont = re.compile("Apple[a-zA-Z0-9]*USB[0-9A-Z]+,")
         self.usb_hub  = re.compile("Apple[a-zA-Z0-9]*USB\d+[a-zA-Z]*Hub,")
         self.usb_hubp = re.compile("Apple[a-zA-Z0-9]*USB\d+[a-zA-Z]*HubPort,")
         self.usb_ext  = [
