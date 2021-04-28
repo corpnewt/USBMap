@@ -1277,7 +1277,11 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
             "" if self.merged_list else " (Must Discover Ports First)",
             self.ce
         ))
-        print("K. Create Dummy USBMap.kext Padded to 26 ports per controller")
+        print("{}K. Create Dummy USBMap.kext{}{}".format(
+            "" if self.merged_list else self.rs,
+            "" if self.merged_list else " (Must Discover Ports First)",
+            self.ce
+        ))
         print("R. Reset All Detected Ports")
         if os.path.exists(self.usb_list):
             print("B. Backup Detected Port Plist")
@@ -1295,7 +1299,7 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
         if menu.lower() == "q":
             self.u.resize(80, 24)
             self.u.custom_quit()
-        if menu.lower() == "k":
+        if menu.lower() == "k" and self.merged_list:
             self.build_kext(modern=True,legacy=True,padded_to=26)
         elif menu.lower() == "r":
             try:
