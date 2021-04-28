@@ -107,8 +107,8 @@ class USBMap:
 
     def get_matching_controller(self,controller_name,from_cont=None,into_cont=None):
         self.check_controllers()
-        from_cont = from_cont if from_cont != None else self.merged_list
-        into_cont = into_cont if into_cont != None else self.controllers
+        from_cont = from_cont if from_cont != None else self.controllers
+        into_cont = into_cont if into_cont != None else self.merged_list
         assert controller_name in from_cont # Can't match if it doesn't exist!
         # We try matching by most specific to most general, location -> ioservice -> acpi -> name@addr -> name
         if "locationid" in from_cont[controller_name]:
@@ -129,17 +129,24 @@ class USBMap:
 
     def merge_controllers(self,from_cont=None,into_cont=None):
         self.check_controllers()
-        from_cont = from_cont if from_cont != None else self.merged_list
-        into_cont = into_cont if into_cont != None else self.controllers
+        from_cont = from_cont if from_cont != None else self.controllers
+        into_cont = into_cont if into_cont != None else self.merged_list
         # Helper function to combine from_cont's settings with into_cont's
         for cont in from_cont:
             # Skip any that don't exist - controllers don't materialize out of nothing
             # They do apparently change addresses though - so try to match by name... this *hopes* that
             # the users has setup unique names for all controllers first.
             cont_adj = self.get_matching_controller(cont,from_cont,into_cont)
-            if not cont_adj: continue
+            if not cont_adj: cont_adj = cont
             # Ensure we have a ports dict
-            if not "ports" in into_cont[cont_adj]: into_cont[cont_adj]["ports"] = {}
+            last_step = into_cont
+            for step in (cont_adj,"ports"):
+                if not step in last_step: last_step[step] = {}
+                last_step = last_step[step]
+            # Pull any missing information in
+            for key in from_cont[cont]:
+                if key == "ports": continue # Handle ports separately
+                into_cont[cont_adj][key] = from_cont[cont][key]
             # Only pull saved items into the new dict
             for port_num in from_cont[cont]["ports"]:
                 port = from_cont[cont]["ports"][port_num]
@@ -148,8 +155,9 @@ class USBMap:
                 for key in port:
                     # Merge item lists as sets to avoid duplicates
                     if key == "items":
-                        new_items = mort.get("items",[])
-                        new_items.extend([x for x in port["items"] if not x in mort.get("items",[])])
+                        new_items = []
+                        for x in mort.get("items",[])+port.get("items",[]):
+                            if not x in new_items: new_items.append(x)
                         mort["items"] = new_items
                     elif key in ("name","id") and key in mort: continue # Skip the name and id to always use the most recent
                     else: mort[key] = port[key]
@@ -640,6 +648,7 @@ class USBMap:
     def discover_ports(self):
         # Iterates every 5 seconds showing any newly populated ports
         self.check_controllers()
+        self.merged_list = self.merge_controllers()
         total_ports = OrderedDict()
         last_ports  = OrderedDict()
         last_list   = []
@@ -648,7 +657,6 @@ class USBMap:
             extras = 0
             self.check_by_ioreg(force=True)
             self.u.head("Discover USB Ports")
-            print("")
             check_ports = self.get_ports_and_devices()
             # Walk them and check for differences
             new_last_list = []
@@ -742,8 +750,6 @@ class USBMap:
         originals = []
         name_list = []
         pad = 11
-        # Fist ensure our merged_list is populated:
-        self.merged_list = self.merge_controllers()
         # Iterate the ports
         for index,port in port_list:
             n,t,p,a,c,r = port.split(" | ")
