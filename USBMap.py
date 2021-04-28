@@ -204,7 +204,7 @@ class USBMap:
             return {
                 "line":line,
                 "indent":len(line)-len(line.lstrip()),
-                "id": line.split("id ")[-1],
+                "id":line.split("id ")[-1],
                 "name":line.lstrip().split("  <class")[0],
                 "type":line.split("<class ")[1].split(",")[0],
                 "items":{}
@@ -445,38 +445,39 @@ class USBMap:
             controllers[controller]["ioservice_path"] = path
         return controllers
 
-    def build_kext(self,modern=True,legacy=False):
+    def build_kext(self,modern=True,legacy=False,padded_to=0,skip_disabled=False):
         if not modern and not legacy: return # wut - shouldn't happen
         self.u.resize(80, 24)
         empty_controllers = []
         skip_empty = True
-        for x in self.merged_list:
-            ports = self.merged_list[x]["ports"]
-            if all((ports[y].get("enabled",False) == False for y in ports)):
-                empty_controllers.append(x)
-        if len(empty_controllers):
-            if all((x in empty_controllers for x in self.merged_list)):
-                # No ports selected at all... silly people
-                self.u.head("No Ports Selected")
-                print("")
-                print("There are no ports enabled!")
-                print("Please enable at least one port and try again.")
-                print("")
-                self.u.grab("Press [enter] to return to the menu...")
-                return
-            while True:
-                self.u.head("Controller Validation")
-                print("")
-                print("Found empty controllers!")
-                print("The following controllers have no enabled ports:\n")
-                for x in empty_controllers:
-                    print(" - {}".format(x))
-                print("")
-                e = self.u.grab("Choose whether to (i)gnore or (d)isable them: ")
-                if not len(e): continue
-                if e.lower() in ("i","ignore","d","disable"):
-                    skip_empty = e.lower() in ("i","ignore")
-                    break
+        if padded_to > 0:
+            for x in self.merged_list:
+                ports = self.merged_list[x]["ports"]
+                if all((ports[y].get("enabled",False) == False for y in ports)):
+                    empty_controllers.append(x)
+            if len(empty_controllers):
+                if all((x in empty_controllers for x in self.merged_list)):
+                    # No ports selected at all... silly people
+                    self.u.head("No Ports Selected")
+                    print("")
+                    print("There are no ports enabled!")
+                    print("Please enable at least one port and try again.")
+                    print("")
+                    self.u.grab("Press [enter] to return to the menu...")
+                    return
+                while True:
+                    self.u.head("Controller Validation")
+                    print("")
+                    print("Found empty controllers!")
+                    print("The following controllers have no enabled ports:\n")
+                    for x in empty_controllers:
+                        print(" - {}".format(x))
+                    print("")
+                    e = self.u.grab("Choose whether to (i)gnore or (d)isable them: ")
+                    if not len(e): continue
+                    if e.lower() in ("i","ignore","d","disable"):
+                        skip_empty = e.lower() in ("i","ignore")
+                        break
         # Build the kext
         title = []
         if modern: title.append(os.path.basename(self.kext_path))
@@ -485,15 +486,15 @@ class USBMap:
         print("")
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
         print("Generating Info.plist{}...".format("" if len(title)==1 else "s"))
-        if modern: self.check_and_build(self.kext_path,self.info_path,skip_empty=skip_empty,legacy=False)
-        if legacy: self.check_and_build(self.legacy_kext_path,self.legacy_info_path,skip_empty=skip_empty,legacy=True)
+        if modern: self.check_and_build(self.kext_path,self.info_path,skip_empty=skip_empty,legacy=False,skip_disabled=skip_disabled,padded_to=padded_to)
+        if legacy: self.check_and_build(self.legacy_kext_path,self.legacy_info_path,skip_empty=skip_empty,legacy=True,skip_disabled=skip_disabled,padded_to=padded_to)
         print("Done.")
         print("")
         self.re.reveal(self.kext_path if modern else self.legacy_kext_path,True)
         self.u.grab("Press [enter] to return to the menu...")
 
-    def check_and_build(self,kext_path,info_path,skip_empty=True,legacy=False):
-        info_plist = self.build_info_plist(skip_empty=skip_empty,legacy=legacy)
+    def check_and_build(self,kext_path,info_path,skip_empty=True,legacy=False,skip_disabled=False,padded_to=0):
+        info_plist = self.build_info_plist(skip_empty=skip_empty,legacy=legacy,skip_disabled=skip_disabled,padded_to=padded_to)
         if os.path.exists(kext_path):
             print("Located existing {} - removing...".format(os.path.basename(kext_path)))
             shutil.rmtree(kext_path,ignore_errors=True)
@@ -503,7 +504,7 @@ class USBMap:
         with open(info_path,"wb") as f:
             plist.dump(info_plist,f)
 
-    def build_info_plist(self,skip_empty=True,legacy=False):
+    def build_info_plist(self,skip_empty=True,legacy=False,skip_disabled=False,padded_to=0):
         output_plist = {
             "CFBundleDevelopmentRegion": "English",
             "CFBundleGetInfoString": "v1.0",
@@ -518,11 +519,18 @@ class USBMap:
             "OSBundleRequired": "Root"
         }
         for x in self.merged_list:
-            ports = self.merged_list[x]["ports"]
+            if padded_to > 0: # Generate fake ports for a guessed-injector
+                padded_to = 30 if padded_to > 30 else padded_to
+                ports = {}
+                for a in range(padded_to):
+                    addr = self.hex_swap(hex(a+1)[2:].rjust(8,"0"))
+                    ports[addr] = {"type":"Unknown","port":addr,"enabled":True}
+            else:
+                ports = self.merged_list[x]["ports"]
             if all((ports[y].get("enabled",False) == False for y in ports)) and skip_empty:
                 # Got an empty controller, bail
                 continue
-            top_port = hs_port = ss_port = 0
+            top_port = hs_port = ss_port = uk_port = 0
             top_data = self.hex_to_data("00000000")
             providers = (
                 ("OHCI","AppleUSBOHCIPCI"),
@@ -559,10 +567,14 @@ class USBMap:
             if "XHCI" in self.merged_list[x]["type"]:
                 # Only add the kUSBMuxEnabled property to XHCI controllers
                 new_entry["IOProviderMergeProperties"]["kUSBMuxEnabled"] = True
-            for port_num in self.merged_list[x]["ports"]:
-                port = self.merged_list[x]["ports"][port_num]
+            for port_num in sorted(ports):
+                port = ports[port_num]
                 # Increment values
-                if "USB3" in port["type"]:
+                if port["type"] == "Unknown":
+                    # Unknown port - we're padding
+                    uk_port += 1
+                    port_name = self.get_numbered_name("UK00",uk_port,False)
+                elif "USB3" in port["type"]:
                     # All USB 3+ ports are SSxx
                     ss_port += 1
                     port_name = self.get_numbered_name("SS00",ss_port,False)
@@ -571,10 +583,10 @@ class USBMap:
                     hs_port += 1
                     port_name = self.get_numbered_name("HS00" if "XHCI" in self.merged_list[x]["type"] else "PRT0",hs_port,False)
                 # Make sure the port is enabled
-                if not port.get("enabled",False): continue # Disabled, skip it
+                if not port.get("enabled",False) and skip_disabled: continue # Disabled, skip it
                 # Check port number
                 port_number = self.hex_dec(self.hex_swap(port["port"]))
-                if port_number > top_port:
+                if port.get("enabled") and port_number > top_port:
                     top_port = port_number
                     top_data = self.hex_to_data(port["port"])
                 # Check port type prioritizing overrides if found
@@ -582,7 +594,7 @@ class USBMap:
                 # Add the port with the connector type and port number
                 new_entry["IOProviderMergeProperties"]["ports"][port_name] = {
                     "UsbConnector": usb_connector,
-                    "port": self.hex_to_data(port["port"])
+                    "port" if port.get("enabled") else "#port": self.hex_to_data(port["port"])
                 }
                 # Retain any comments
                 if "comment" in port:
@@ -1259,6 +1271,7 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
             "" if self.merged_list else " (Must Discover Ports First)",
             self.ce
         ))
+        print("K. Create Dummy USBMap.kext Padded to 26 ports per controller")
         print("R. Reset All Detected Ports")
         if os.path.exists(self.usb_list):
             print("B. Backup Detected Port Plist")
@@ -1276,6 +1289,8 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
         if menu.lower() == "q":
             self.u.resize(80, 24)
             self.u.custom_quit()
+        if menu.lower() == "k":
+            self.build_kext(modern=True,legacy=True,padded_to=26)
         elif menu.lower() == "r":
             try:
                 # Reset the merged_list and repopulate the controllers
