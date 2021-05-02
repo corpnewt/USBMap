@@ -112,7 +112,7 @@ class USBMap:
         assert controller_name in from_cont # Can't match if it doesn't exist!
         # We try matching by most specific to most general, location -> pcidebug -> ioservice -> acpi -> name@addr -> name
         for check in ("locationid","pci_debug","ioservice_path","acpi_path"):
-            cont_adj = next((x for x in into_cont if from_cont[controller_name].get("locationid",None) == into_cont[x].get("locationid","Unknown")),None)
+            cont_adj = next((x for x in into_cont if from_cont[controller_name].get(check,None) == into_cont[x].get(check,"Unknown")),None)
             if cont_adj: return cont_adj
         # Didn't match - we can't rely on just names as there might be multiple PXSX devices
         return None
