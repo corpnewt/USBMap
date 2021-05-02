@@ -110,20 +110,10 @@ class USBMap:
         from_cont = from_cont if from_cont != None else self.controllers
         into_cont = into_cont if into_cont != None else self.merged_list
         assert controller_name in from_cont # Can't match if it doesn't exist!
-        # We try matching by most specific to most general, location -> ioservice -> acpi -> name@addr -> name
-        if "locationid" in from_cont[controller_name]:
-            # If it has a location - we want to match that
-            cont_adj = next((x for x in into_cont if from_cont[controller_name]["locationid"] == into_cont[x].get("locationid",None)),None)
+        # We try matching by most specific to most general, location -> pcidebug -> ioservice -> acpi -> name@addr -> name
+        for check in ("locationid","pci_debug","ioservice_path","acpi_path"):
+            cont_adj = next((x for x in into_cont if from_cont[controller_name].get("locationid",None) == into_cont[x].get("locationid","Unknown")),None)
             if cont_adj: return cont_adj
-        # Let's try by matching the IOService path? - This is rather specific and might change.
-        cont_adj = next((x for x in into_cont if from_cont[controller_name].get("ioservice_path",None) == into_cont[x].get("ioservice_path","Unknown")),None)
-        if cont_adj: return cont_adj
-        # Let's try by matching the ACPI path?
-        cont_adj = next((x for x in into_cont if from_cont[controller_name].get("acpi_path",None) == into_cont[x].get("acpi_path","Unknown")),None)
-        if cont_adj: return cont_adj
-        # Don't match name@address anymore due to hugely hit-or-miss nature
-        """if controller_name in into_cont:
-            return controller_name""" # The same name@address exist - should be the same entry
         # Didn't match - we can't rely on just names as there might be multiple PXSX devices
         return None
 
@@ -422,11 +412,11 @@ class USBMap:
                     controllers[add_name]["parent_name"] = controller["name"] if controller else "HUB"
             controllers[add_name]["ports"][obj["port"]] = obj
         # Walk the controllers and retain the parent_name, acpi_path, and _ADR values
-        parent = parent_name = acpi_path = acpi_addr = None
+        parent = parent_name = acpi_path = acpi_addr = pcidebug = None
         for acpi_line in self.ioreg:
             if "<class IOPlatformExpertDevice," in acpi_line:
                 self.smbios = acpi_line.split("+-o ")[1].split("<class")[0].strip()
-            if '"acpi-path"' in acpi_line:
+            elif '"acpi-path"' in acpi_line:
                 acpi_path = acpi_line.split('"')[-2]
                 continue
             elif "<class IOPCIDevice," in acpi_line:
@@ -440,6 +430,9 @@ class USBMap:
                 except Exception as e:
                     acpi_addr = None
                 continue
+            elif '"pcidebug"' in acpi_line:
+                pcidebug = acpi_line.split('"')[-2]
+                continue
             # Try to get the object@address
             try:
                 current_obj = acpi_line.split("+-o ")[1].split("  <class")[0]
@@ -449,6 +442,7 @@ class USBMap:
                 controllers[current_obj]["parent_name"] = parent_name
                 controllers[current_obj]["acpi_path"] = acpi_path
                 controllers[current_obj]["acpi_address"] = acpi_addr if acpi_addr else "Zero"
+                controllers[current_obj]["pci_debug"] = pcidebug
                 # Reset the temp vars
                 parent_name = acpi_addr = acpi_path = None
         # Let's get the IOService path for each controller
@@ -555,7 +549,12 @@ class USBMap:
             new_entry = {
                 "CFBundleIdentifier": "com.apple.driver.AppleUSBMergeNub" if legacy else "com.apple.driver.AppleUSBHostMergeProperties",
                 "IOClass": "AppleUSBMergeNub" if legacy else "AppleUSBHostMergeProperties", # Consider AppleUSBHostMergeProperties on 10.15+
-                "IONameMatch": self.merged_list[x]["parent_name"],
+                "locationID": self.merged_list[x].get("locationid"),
+                "IONameMatch": self.merged_list[x].get("parent_name"),
+                "IOPathMatch": self.merged_list[x].get("ioservice_path"),
+                "IOPropertyMatch": {
+                    "pcidebug": self.merged_list[x].get("pci_debug")
+                },
                 # Provider class for OHCI, UHCI, EHCI, USB 2.0 hubs, and XHCI based on controller type - falls back to XHCI on no match
                 "IOProviderClass": next((y[1] for y in providers if y[0] in self.merged_list[x]["type"]),"AppleUSBXHCIPCI"),
                 "IOProviderMergeProperties": {
@@ -565,18 +564,23 @@ class USBMap:
                 },
                 "model": self.smbios
             }
-            if "ioservice_path" in self.merged_list[x]:
-                # We have a more elegant way to match than the ham-fisted IONameMatch
-                new_entry.pop("IONameMatch",None)
-                new_entry["IOPathMatch"] = self.merged_list[x]["ioservice_path"]
+            pop_keys = ("IONameMatch","locationID","IOPathMatch","IOPropertyMatch")
+            save_key = "IONameMatch"
             if "locationid" in self.merged_list[x]:
-                # We have a hub - save the loc id and up the IOProbeScore - use the most recent though - by the name's address
-                try: new_entry["locationID"] = self.hex_dec(x.split("-")[-1])
-                except: new_entry["locationID"] = self.merged_list[x]["locationid"] # Fall back on the original locationid
+                # We have a hub - save the loc id and up the IOProbeScore
+                new_entry["locationID"] = self.merged_list[x]["locationid"]
                 new_entry["IOProbeScore"] = 5000
-                # No need to name/path match as we're using locationID instead
-                new_entry.pop("IONameMatch",None)
-                new_entry.pop("IOPathMatch",None)
+                save_key = "locationID"
+            elif "pci_debug" in self.merged_list[x]:
+                # Better matching than IONameMatch and IOPathMatch
+                save_key = "IOPropertyMatch"
+            elif "ioservice_path" in self.merged_list[x]:
+                # We have a more elegant way to match than the ham-fisted IONameMatch
+                save_key = "IOPathMatch"
+            # Pop any keys we won't use
+            for key in pop_keys:
+                if key == save_key: continue
+                new_entry.pop(key,None)
             if "XHCI" in self.merged_list[x]["type"]:
                 # Only add the kUSBMuxEnabled property to XHCI controllers
                 new_entry["IOProviderMergeProperties"]["kUSBMuxEnabled"] = True
