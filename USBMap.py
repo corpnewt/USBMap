@@ -552,8 +552,10 @@ class USBMap:
                 "locationID": self.merged_list[x].get("locationid"),
                 "IONameMatch": self.merged_list[x].get("parent_name"),
                 "IOPathMatch": self.merged_list[x].get("ioservice_path"),
-                "IOPropertyMatch": {
-                    "pcidebug": self.merged_list[x].get("pci_debug")
+                "IOParentMatch": {
+                    "IOPropertyMatch": {
+                        "pcidebug": self.merged_list[x].get("pci_debug")
+                    }
                 },
                 # Provider class for OHCI, UHCI, EHCI, USB 2.0 hubs, and XHCI based on controller type - falls back to XHCI on no match
                 "IOProviderClass": next((y[1] for y in providers if y[0] in self.merged_list[x]["type"]),"AppleUSBXHCIPCI"),
@@ -564,7 +566,7 @@ class USBMap:
                 },
                 "model": self.smbios
             }
-            pop_keys = ("IONameMatch","locationID","IOPathMatch","IOPropertyMatch")
+            pop_keys = ("IONameMatch","locationID","IOPathMatch","IOParentMatch")
             save_key = "IONameMatch"
             if "locationid" in self.merged_list[x]:
                 # We have a hub - save the loc id and up the IOProbeScore
@@ -573,7 +575,7 @@ class USBMap:
                 save_key = "locationID"
             elif "pci_debug" in self.merged_list[x]:
                 # Better matching than IONameMatch and IOPathMatch
-                save_key = "IOPropertyMatch"
+                save_key = "IOParentMatch"
             elif "ioservice_path" in self.merged_list[x]:
                 # We have a more elegant way to match than the ham-fisted IONameMatch
                 save_key = "IOPathMatch"
