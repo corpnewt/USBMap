@@ -149,6 +149,10 @@ class USBMap:
                         for x in mort.get("items",[])+port.get("items",[]):
                             if not x in new_items: new_items.append(x)
                         mort["items"] = new_items
+                    elif key == "enabled":
+                        # Don't override explicit settings from the edit screen
+                        if port.get(key,None) != None and mort.get(key,None) == None:
+                            mort[key] = port[key]
                     elif key in ("name","id") and key in mort: continue # Skip the name and id to always use the most recent
                     else: mort[key] = port[key]
                 # Reset the into_cont port
