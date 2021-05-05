@@ -461,7 +461,7 @@ class USBMap:
         self.u.resize(80, 24)
         empty_controllers = []
         skip_empty = True
-        if padded_to > 0:
+        if padded_to <= 0: # Only check if we're not padding
             for x in self.merged_list:
                 ports = self.merged_list[x]["ports"]
                 if all((ports[y].get("enabled",False) == False for y in ports)):
