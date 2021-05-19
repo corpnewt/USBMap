@@ -1053,6 +1053,8 @@ class USBMap:
                 "Replace":repl
             }
             oc_patch = {
+                "Base":"",
+                "BaseSkip":0,
                 "Comment":comm,
                 "Count":0,
                 "Enabled":True,
