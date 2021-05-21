@@ -6,7 +6,12 @@ from datetime import datetime
 class USBMap:
     def __init__(self):
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
-        if os.name == "nt": os.system("color") # Run this once on Windows to enable ansi colors
+        self.w = 80
+        self.h = 24
+        if os.name == "nt":
+            self.w = 120
+            self.h = 30
+            os.system("color") # Run this once on Windows to enable ansi colors
         self.u = utils.Utils("USBMap Injector Edit")
         self.plist_path = None
         self.plist_data = None
@@ -38,7 +43,7 @@ class USBMap:
         return dec
 
     def print_types(self):
-        self.u.resize(80, 24)
+        self.u.resize(self.w, self.h)
         self.u.head("USB Types")
         print("")
         types = "\n".join([
@@ -63,7 +68,7 @@ class USBMap:
         return self.u.grab("Press [enter] to return to the menu...")
 
     def choose_smbios(self,current=None):
-        self.u.resize(80, 24)
+        self.u.resize(self.w, self.h)
         while True:
             self.u.head("Choose SMBIOS Target")
             print("")
@@ -100,9 +105,7 @@ class USBMap:
             pad = 20
             enabled = 0
             highest = b"\x00\x00\x00\x00"
-            self.u.resize(80, 24)
-            self.u.head("{} Ports".format(personality))
-            print("")
+            print_text = []
             for i,x in enumerate(ports,start=1):
                 pad += 1
                 port = ports[x]
@@ -115,7 +118,7 @@ class USBMap:
                     enabled += 1
                     if self.hex_dec(self.hex_swap(addr)) > self.hex_dec(self.hex_swap(binascii.hexlify(highest).decode("utf-8"))):
                         highest = plist.extract_data(port["port"])
-                print("{}[{}] {}. {} | {} | Type {}{}".format(
+                print_text.append("{}[{}] {}. {} | {} | Type {}{}".format(
                     self.bs if "port" in port else "",
                     "#" if "port" in port else " ",
                     str(i).rjust(2),
@@ -127,28 +130,32 @@ class USBMap:
                 comment = port.get("Comment",port.get("comment",None))
                 if comment:
                     pad += 1
-                    print("    {}{}{}".format(self.nm,comment,self.ce))
+                    print_text.append("    {}{}{}".format(self.nm,comment,self.ce))
             # Update the highest selected
             pers["IOProviderMergeProperties"]["port-count"] = plist.wrap_data(highest)
-            self.save_plist()
-            print("")
-            print("Populated:     {}{:,}{}".format(
+            print_text.append("Populated:     {}{:,}{}".format(
                 self.cs if 0 < enabled < 16 else self.rs,
                 enabled,
                 self.ce
             ))
             if "model" in pers:
-                print("Target SMBIOS: {}".format(pers["model"]))
+                print_text.append("Target SMBIOS: {}".format(pers["model"]))
                 pad += 2
             if "IOClass" in pers:
-                print("Target Class:  {}".format(pers["IOClass"]))
+                print_text.append("Target Class:  {}".format(pers["IOClass"]))
                 pad += 2
-            print("")
+            print_text.append("")
             if "model" in pers:
-                print("S. Change SMBIOS Target")
+                print_text.append("S. Change SMBIOS Target")
             if "IOClass" in pers:
                 next_class = "AppleUSBMergeNub" if pers["IOClass"] == "AppleUSBHostMergeProperties" else "AppleUSBHostMergeProperties"
-                print("C. Toggle IOClass to {}".format(next_class))
+                print_text.append("C. Toggle IOClass to {}".format(next_class))
+            self.save_plist()
+            self.u.resize(self.w, pad if pad>self.h else self.h)
+            self.u.head("{} Ports".format(personality))
+            print("")
+            print("\n".join(print_text))
+            print("")
             print("A. Select All")
             print("N. Select None")
             print("T. Show Types")
@@ -160,13 +167,13 @@ class USBMap:
             print("- Set a range of ports using this formula R:1-15:On/Off")
             print("- Change types using this formula T:1,2,3,4,5:t where t is the type")
             print("- Set custom names using this formula C:1,2:Name - Name = None to clear")
-            self.u.resize(80, pad if pad>24 else 24)
+            print("")
             menu = self.u.grab("Please make your selection:  ")
             if not len(menu): continue
             elif menu.lower() == "p": return True
             elif menu.lower() == "m": return
             elif menu.lower() == "q":
-                self.u.resize(80, 24)
+                self.u.resize(self.w, self.h)
                 self.u.custom_quit()
             elif menu.lower() == "s" and "model" in pers:
                 smbios = self.choose_smbios(pers["model"])
@@ -239,14 +246,12 @@ class USBMap:
         pers = list(self.plist_data["IOKitPersonalities"])
         while True:
             pad = 9 + len(pers)
-            self.u.resize(80, 24)
-            self.u.head("Available IOKitPersonalities")
-            print("")
+            print_text = []
             for i,x in enumerate(pers,start=1):
                 personality = self.plist_data["IOKitPersonalities"][x]
                 ports = personality.get("IOProviderMergeProperties",{}).get("ports",{})
                 enabled = len([x for x in ports if "port" in ports[x]])
-                print("{}. {} - {}{:,}{}/{:,} enabled".format(
+                print_text.append("{}. {} - {}{:,}{}/{:,} enabled".format(
                     str(i).rjust(2),
                     x,
                     self.cs if 0 < enabled < 16 else self.rs,
@@ -255,23 +260,27 @@ class USBMap:
                     len(ports)
                 ))
                 if "model" in personality:
-                    print("    {}SMBIOS: {}{}".format(self.bs,personality["model"],self.ce))
+                    print_text.append("    {}SMBIOS: {}{}".format(self.bs,personality["model"],self.ce))
                     pad += 1
                 if "IOClass" in personality:
-                    print("    {}Class:  {}{}".format(self.bs,personality["IOClass"],self.ce))
+                    print_text.append("    {}Class:  {}{}".format(self.bs,personality["IOClass"],self.ce))
                     pad += 1
+            self.u.resize(self.w, pad if pad>self.h else self.h)
+            self.u.head("Available IOKitPersonalities")
+            print("")
+            print("\n".join(print_text))
             print("")
             print("S. Set All SMBIOS Targets")
             print("C. Set All Classes to AppleUSBHostMergeProperties")
             print("L. Set All Classes to AppleUSBMergeNub (Legacy)")
             print("M. Return To Menu")
             print("Q. Quit")
-            self.u.resize(80, pad if pad>24 else 24)
+            print("")
             menu = self.u.grab("Please select an option:  ")
             if not len(menu): continue
             elif menu.lower() == "m": return
             elif menu.lower() == "q":
-                self.u.resize(80, 24)
+                self.u.resize(self.w, self.h)
                 self.u.custom_quit()
             elif menu.lower() == "s":
                 smbios = self.choose_smbios()
@@ -303,7 +312,7 @@ class USBMap:
         return self.u.grab("Press [enter] to continue...")
 
     def main(self):
-        self.u.resize(80, 24)
+        self.u.resize(self.w, self.h)
         self.u.head()
         print("")
         print("Q. Quit")
