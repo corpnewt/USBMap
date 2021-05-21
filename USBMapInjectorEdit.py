@@ -133,7 +133,7 @@ class USBMap:
                     print_text.append("    {}{}{}".format(self.nm,comment,self.ce))
             # Update the highest selected
             pers["IOProviderMergeProperties"]["port-count"] = plist.wrap_data(highest)
-            print_text.append("\nPopulated:     {}{:,}{}".format(
+            print_text.append("\nTotal Enabled: {}{:,}{}".format(
                 self.cs if 0 < enabled < 16 else self.rs,
                 enabled,
                 self.ce
