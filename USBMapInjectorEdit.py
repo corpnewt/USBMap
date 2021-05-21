@@ -107,13 +107,13 @@ class USBMap:
             highest = b"\x00\x00\x00\x00"
             print_text = []
             for i,x in enumerate(ports,start=1):
-                pad += 1
                 port = ports[x]
                 try:
                     addr = binascii.hexlify(plist.extract_data(port.get("port",port.get("#port")))).decode("utf-8")
                 except Exception as e:
                     print(str(e))
                     continue
+                pad += 1
                 if "port" in port:
                     enabled += 1
                     if self.hex_dec(self.hex_swap(addr)) > self.hex_dec(self.hex_swap(binascii.hexlify(highest).decode("utf-8"))):
