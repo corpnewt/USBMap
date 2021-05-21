@@ -696,7 +696,7 @@ class USBMap:
                     extras += 1
                 print("{}{}. {}{}".format(
                     self.cs if any((port==x[1] for x in last_list)) else self.bs if len(total_ports.get(port,[])) else "",
-                    index+1,
+                    str(index+1).rjust(2),
                     " | ".join(port.split(" | ")[:-2]),
                     self.ce if len(total_ports.get(port,[])) else ""
                 ))
@@ -870,7 +870,7 @@ class USBMap:
                     print("{}[{}] {}. {} | {} | {} | {} | Type {}{}".format(
                         self.bs if port.get("enabled",False) else "",
                         "#" if port.get("enabled",False) else " ",
-                        index,
+                        str(index).rjust(2),
                         port["name"],
                         port["type"],
                         port["port"],
@@ -924,7 +924,7 @@ class USBMap:
             menu = self.u.grab("Please make your selection:  ")
             if not len(menu):
                 continue
-            if menu.lower() == "q":
+            elif menu.lower() == "q":
                 self.u.resize(80, 24)
                 self.u.custom_quit()
             elif menu.lower() == "m":
@@ -939,7 +939,6 @@ class USBMap:
                 # Iterate all ports and deselect them
                 for port in ports:
                     port["enabled"] = True if menu.lower() == "a" else False
-                continue
             elif menu.lower() == "p":
                 # Select all populated ports
                 for port in ports:
@@ -953,8 +952,7 @@ class USBMap:
                 for port in ports: port["items"] = []
             elif menu.lower() == "t":
                 self.print_types()
-                continue
-            if menu[0].lower() == "r":
+            elif menu[0].lower() == "r":
                 # Should be a range
                 try:
                     nums = [int(x) for x in menu.split(":")[1].replace(" ","").split("-")]
@@ -969,7 +967,7 @@ class USBMap:
                 except:
                     continue
             # Check if we need to toggle
-            if menu[0].lower() == "t":
+            elif menu[0].lower() == "t":
                 # We should have a type
                 try:
                     nums = [int(x) for x in menu.split(":")[1].replace(" ","").split(",")]
