@@ -102,7 +102,7 @@ class USBMap:
         port_list = list(ports)
         next_class = "AppleUSBHostMergeProperties"
         while True:
-            pad = 20
+            pad = 21
             enabled = 0
             highest = b"\x00\x00\x00\x00"
             print_text = []
@@ -133,7 +133,7 @@ class USBMap:
                     print_text.append("    {}{}{}".format(self.nm,comment,self.ce))
             # Update the highest selected
             pers["IOProviderMergeProperties"]["port-count"] = plist.wrap_data(highest)
-            print_text.append("Populated:     {}{:,}{}".format(
+            print_text.append("\nPopulated:     {}{:,}{}".format(
                 self.cs if 0 < enabled < 16 else self.rs,
                 enabled,
                 self.ce
