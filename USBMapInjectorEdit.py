@@ -339,7 +339,7 @@ class USBMap:
                 "OSBundleRequired": "Root"
             }
             controllers = output_plist["IOKitPersonalities"]
-            types = {"2":"EHCI","3":"XHCI"}
+            types = {"0":"OHCI","1":"OHCI","2":"EHCI","3":"XHCI"} # Use OHCI as a placeholder for 0, and 1
             info = raw.split("UsbDumpEfi start")[1]
             last_name = None
             for line in info.split("\n"):
