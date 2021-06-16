@@ -6,6 +6,7 @@ from datetime import datetime
 class USBMap:
     def __init__(self):
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
+        self.output = "./Results"
         self.w = 80
         self.h = 24
         if os.name == "nt":
@@ -42,6 +43,11 @@ class USBMap:
         except: return None
         return dec
 
+    def hex_data(self, hex_str):
+        hex_str = self.check_hex(hex_str)
+        try: return plist.wrap_data(binascii.unhexlify(hex_str.encode("utf-8")))
+        except: return None
+
     def print_types(self):
         self.u.resize(self.w, self.h)
         self.u.head("USB Types")
@@ -67,7 +73,7 @@ class USBMap:
         print("")
         return self.u.grab("Press [enter] to return to the menu...")
 
-    def choose_smbios(self,current=None):
+    def choose_smbios(self,current=None,allow_return=True,prompt=None):
         self.u.resize(self.w, self.h)
         while True:
             self.u.head("Choose SMBIOS Target")
@@ -75,12 +81,13 @@ class USBMap:
             if current:
                 print("Current: {}".format(current))
                 print("")
-            print("M. Return to Menu")
+            if prompt: print(prompt+"\n")
+            if allow_return: print("M. Return to Menu")
             print("Q. Quit")
             print("")
             menu = self.u.grab("Please type the new target SMBIOS (eg. iMac18,1):  ")
             if not len(menu): continue
-            elif menu.lower() == "m": return
+            elif menu.lower() == "m" and allow_return: return
             elif menu.lower() == "q": self.u.custom_quit()
             else: return menu
 
@@ -250,7 +257,7 @@ class USBMap:
             for i,x in enumerate(pers,start=1):
                 personality = self.plist_data["IOKitPersonalities"][x]
                 ports = personality.get("IOProviderMergeProperties",{}).get("ports",{})
-                enabled = len([x for x in ports if "port" in ports[x]])
+                enabled = len([p for p in ports if "port" in ports[p]])
                 print_text.append("{}. {} - {}{:,}{}/{:,} enabled".format(
                     str(i).rjust(2),
                     x,
@@ -311,14 +318,96 @@ class USBMap:
         print("")
         return self.u.grab("Press [enter] to continue...")
 
+    def parse_usb_txt(self,raw):
+        model = self.choose_smbios(current=None,allow_return=False,prompt="Please enter the target SMBIOS for this injector.")
+        self.u.head("Parsing USB Info")
+        print("")
+        print("Got SMBIOS: {}".format(model))
+        print("Walking UsbDumpEfi output...")
+        try:
+            output_plist = {
+                "CFBundleDevelopmentRegion": "English",
+                "CFBundleGetInfoString": "v1.0",
+                "CFBundleIdentifier": "com.corpnewt.USBMap",
+                "CFBundleInfoDictionaryVersion": "6.0",
+                "CFBundleName": "USBMap",
+                "CFBundlePackageType": "KEXT",
+                "CFBundleShortVersionString": "1.0",
+                "CFBundleSignature": "????",
+                "CFBundleVersion": "1.0",
+                "IOKitPersonalities": {},
+                "OSBundleRequired": "Root"
+            }
+            controllers = output_plist["IOKitPersonalities"]
+            types = {"2":"EHCI","3":"XHCI"}
+            info = raw.split("UsbDumpEfi start")[1]
+            last_name = None
+            for line in info.split("\n"):
+                line = line.strip()
+                if not line: continue
+                if line.startswith("Found"): # Got a controller
+                    addr = ":".join([str(int(x,16)) for x in line.split(" @ ")[-1].replace(".",":").split(":")])
+                    t = types.get(line.split("speed ")[1].split(")")[0],"Unknown")
+                    last_name = t
+                    if last_name in controllers:
+                        n = 1
+                        while True:
+                            temp = "{}-{}".format(last_name,n)
+                            if not temp in controllers:
+                                last_name = temp
+                                break
+                            n += 1
+                    controllers[last_name] = {
+                        "CFBundleItentifier": "com.apple.driver.AppleUSBHostMergeProperties",
+                        "IOClass": "AppleUSBHostMergeProperties",
+                        "IOParentMatch": {"IOPropertyMatch":{"pcidebug":addr}},
+                        "IOProviderClass":"AppleUSB{}PCI".format(t),
+                        "IOProviderMergeProperties": {
+                            "port-count": self.hex_data(self.hex_swap(hex(int(line.split("(")[1].split(" ports")[0]))[2:].upper().rjust(8,"0"))),
+                            "ports": {}
+                        },
+                        "model": model
+                    }
+                    if t == "XHCI": controllers[last_name]["IOProviderMergeProperties"]["kUSBMuxEnabled"] = True
+                elif line.startswith("Port") and last_name != None:
+                    usb_connector = 3 if "XHCI" in controllers[last_name]["IOProviderClass"] else 0
+                    num = int(line.split("Port ")[1].split(" status")[0])+1
+                    name = "UK{}".format(str(num).rjust(2,"0"))
+                    hex_num = self.hex_data(self.hex_swap(hex(num)[2:].upper().rjust(8,"0")))
+                    controllers[last_name]["IOProviderMergeProperties"]["ports"][name] = {"UsbConnector":usb_connector,"port":hex_num}
+        except Exception as e:
+            return self.show_error("Error Parsing".format(os.path.basename(path)),e)
+        print("Generating kexts...")
+        if not os.path.exists(self.output): os.mkdir(self.output)
+        for k,t in (("USBMap.kext","AppleUSBHostMergeProperties"),("USBMapLegacy.kext","AppleUSBMergeNub")):
+            print(" - {}".format(k))
+            kp = os.path.join(self.output,k)
+            if os.path.exists(kp):
+                print(" --> Located existing {} - removing...".format(k))
+                shutil.rmtree(kp,ignore_errors=True)
+            print(" --> Creating bundle structure...")
+            os.makedirs(os.path.join(kp,"Contents"))
+            print(" --> Setting IOClass types...")
+            for c in controllers:
+                controllers[c]["CFBundleItentifier"] = "com.apple.driver.{}".format(t)
+                controllers[c]["IOClass"] = t
+            print(" --> Writing Info.plist...")
+            with open(os.path.join(kp,"Contents","Info.plist"),"wb") as f:
+                plist.dump(output_plist,f)
+            print(" - Saved to: {}".format(kp))
+        print("")
+        print("Done.")
+        print("")
+        self.u.grab("Press [enter] to return...")
+
     def main(self):
         self.u.resize(self.w, self.h)
         self.u.head()
         print("")
         print("Q. Quit")
         print("")
-        print("Please drag and drop a USBMap(Legacy).kext or Info.plist")
-        menu = self.u.grab("here to edit:  ")
+        print("Please drag and drop a USBMap(Legacy).kext, Info.plist,")
+        menu = self.u.grab("or UsbDumpEfi.efi output here to continue:  ")
         if not len(menu): return
         if menu.lower() == "q": self.u.custom_quit()
         # Check the path
@@ -330,11 +419,16 @@ class USBMap:
             if not os.path.exists(path): raise Exception("{} does not exist!".format(path))
             if not os.path.isfile(path): raise Exception("{} is a directory!".format(path))
         except Exception as e:
-            return self.show_error("Error Selecting Injector",e)
+            return self.show_error("Error Selecting Target",e)
         try:
             # Load it and ensure the plist is valid
             with open(path,"rb") as f:
-                plist_data = plist.load(f,dict_type=OrderedDict)
+                raw = f.read().replace("\x00","").decode("utf-8",errors="ignore")
+                if "UsbDumpEfi start" in raw:
+                    return self.parse_usb_txt(raw)
+                else:
+                    f.seek(0)
+                    plist_data = plist.load(f,dict_type=OrderedDict)
         except Exception as e:
             return self.show_error("Error Loading {}".format(os.path.basename(path)),e)
         if not len(plist_data.get("IOKitPersonalities",{})):
