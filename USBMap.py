@@ -1306,7 +1306,7 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
         if rhub_paths:
             print("H. Generate ACPI To Reset RHUBs ({}May Conflict With Existing SSDT-USB-Reset.aml!{})".format(self.rs,self.ce))
         print("")
-        print("Q.  Quit")
+        print("Q. Quit")
         print("")
         menu = self.u.grab("Please select an option:  ")
         if not len(menu):
