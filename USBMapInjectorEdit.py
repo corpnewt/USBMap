@@ -319,7 +319,8 @@ class USBMap:
         return self.u.grab("Press [enter] to continue...")
 
     def parse_usb_txt(self,raw):
-        model = self.choose_smbios(current=None,allow_return=False,prompt="Please enter the target SMBIOS for this injector.")
+        model = self.choose_smbios(current=None,prompt="Please enter the target SMBIOS for this injector.")
+        if not model: return
         self.u.head("Parsing USB Info")
         print("")
         print("Got SMBIOS: {}".format(model))
@@ -423,7 +424,7 @@ class USBMap:
         try:
             # Load it and ensure the plist is valid
             with open(path,"rb") as f:
-                raw = f.read().replace("\x00","").decode("utf-8",errors="ignore")
+                raw = f.read().replace(b"\x00",b"").decode("utf-8",errors="ignore")
                 if "UsbDumpEfi start" in raw:
                     return self.parse_usb_txt(raw)
                 else:
