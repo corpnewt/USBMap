@@ -416,10 +416,11 @@ class USBMap:
                 # We got a hub that we can map
                 add_name = "HUB-{}".format(last_hub["name"].split("@")[-1])
                 if not add_name in controllers:
-                    controllers[add_name] = last_hub
+                    controllers[add_name] = {}
+                    for key in last_hub: controllers[add_name][key] = last_hub[key]
                     controllers[add_name]["is_hub"] = True
                     controllers[add_name]["name"],controllers[add_name]["address"] = last_hub["name"].split("@")
-                    controllers[add_name]["locationid"] = self.hex_dec(last_hub["name"].split("@")[-1]) # Only add the location for USB 2 HUBs
+                    controllers[add_name]["locationid"] = self.hex_dec(controllers[add_name]["address"]) # Only add the location for USB 2 HUBs
                     controllers[add_name]["ports"] = OrderedDict()
                     controllers[add_name]["parent"] = "HUB-"+controllers[add_name]["address"]
                     controllers[add_name]["parent_name"] = controller["name"] if controller else "HUB"
@@ -562,7 +563,6 @@ class USBMap:
             new_entry = {
                 "CFBundleIdentifier": "com.apple.driver.AppleUSBMergeNub" if legacy else "com.apple.driver.AppleUSBHostMergeProperties",
                 "IOClass": "AppleUSBMergeNub" if legacy else "AppleUSBHostMergeProperties", # Consider AppleUSBHostMergeProperties on 10.15+
-                "locationID": self.merged_list[x].get("locationid"),
                 "IONameMatch": self.merged_list[x].get("parent_name"),
                 "IOPathMatch": self.merged_list[x].get("ioservice_path"),
                 "IOParentMatch": {
