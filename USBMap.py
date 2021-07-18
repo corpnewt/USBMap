@@ -18,7 +18,7 @@ class USBMap:
         self.r = run.Run()
         self.i = ioreg.IOReg()
         self.re = reveal.Reveal()
-        self.map_hubs = False # Enable to show hub ports/devices in mapping
+        self.map_hubs = True # Enable to show hub ports/devices in mapping
         self.controllers = None
         self.smbios = None
         self.os_build_version = "Unknown"
@@ -29,7 +29,8 @@ class USBMap:
         self.usb_hubp = re.compile("Apple[a-zA-Z0-9]*USB\d+[a-zA-Z]*HubPort,")
         self.usb_ext  = [
             re.compile("<class [a-zA-Z0-9]*BluetoothHostControllerUSBTransport,"),
-            re.compile("^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,") # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
+            re.compile("^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,"), # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
+            self.usb_hubp
         ] # List of extra objects to match against
         self.map_list = self.get_map_list()
         self.port_map_list = self.get_port_map_list()
@@ -575,6 +576,7 @@ class USBMap:
             if "locationid" in self.merged_list[x]:
                 # We have a hub - save the loc id and up the IOProbeScore
                 new_entry["locationID"] = self.merged_list[x]["locationid"]
+                new_entry["IOProviderClass"] = "AppleUSB20InternalHub"
                 new_entry["IOProbeScore"] = 5000
                 save_key = "locationID"
             elif "pci_debug" in self.merged_list[x]:
