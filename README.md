@@ -8,7 +8,7 @@ Python script for mapping USB ports in macOS and creating a custom injector kext
 
 - [x] No dependency on USBInjectAll
 - [x] Can map XHCI (chipset, third party, and AMD), EHCI, OHCI, and UHCI ports
-- [ ] ~~Can map USB 2 HUBs~~ *currently disabled*
+- [x] Can map USB 2 HUBs
 - [x] Matches based on class name, not port or controller name
 - [x] Allows setting nicknames to the last-seen populated ports in discovery
 - [x] Aggregates connected devices via session id instead of the broken port addressing
