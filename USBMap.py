@@ -670,6 +670,12 @@ class USBMap:
         except: return None
         return dec
 
+    def port_to_num(self, value, pad_to=2):
+        value = self.check_hex(value)
+        try: return str(int(self.hex_swap(value),16)).rjust(pad_to)
+        except: pass
+        return "-1".rjust(pad_to)
+
     def discover_ports(self):
         # Iterates every 5 seconds showing any newly populated ports
         self.check_controllers()
@@ -704,12 +710,17 @@ class USBMap:
                     print("    ----- {}{} Controller{} -----".format(self.cs,r,self.ce))
                     last_cont = c
                     extras += 1
-                print("{}{}. {}{}".format(
-                    self.cs if any((port==x[1] for x in last_list)) else self.bs if len(total_ports.get(port,[])) else "",
-                    str(index+1).rjust(2),
-                    " | ".join(port.split(" | ")[:-2]),
-                    self.ce if len(total_ports.get(port,[])) else ""
-                ))
+                print("{}{}. {} | {} | {} ({}) | {} | Type {}{}".format(
+                        self.cs if any((port==x[1] for x in last_list)) else self.bs if len(total_ports.get(port,[])) else "",
+                        str(index+1).rjust(2),
+                        n,
+                        t,
+                        self.port_to_num(p),
+                        p,
+                        a,
+                        e,
+                        self.ce if len(total_ports.get(port,[])) else ""
+                    ))
                 # Initialize the last controller seen
                 if last_cont == None: last_cont = c
                 original = self.controllers[c]["ports"][p]
@@ -877,12 +888,13 @@ class USBMap:
                     ports.append(port)
                     if port.get("enabled",False): counts[cont] += 1 # Increment the port counter for the selected controller
                     usb_connector = port.get("type_override", 3 if "XHCI" in self.merged_list[cont]["type"] else 0)
-                    print("{}[{}] {}. {} | {} | {} | {} | Type {}{}".format(
+                    print("{}[{}] {}. {} | {} | {} ({}) | {} | Type {}{}".format(
                         self.bs if port.get("enabled",False) else "",
                         "#" if port.get("enabled",False) else " ",
                         str(index).rjust(2),
                         port["name"],
                         port["type"],
+                        self.port_to_num(port["port"]),
                         port["port"],
                         port["address"],
                         usb_connector,
