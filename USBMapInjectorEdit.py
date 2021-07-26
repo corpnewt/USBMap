@@ -48,6 +48,12 @@ class USBMap:
         try: return plist.wrap_data(binascii.unhexlify(hex_str.encode("utf-8")))
         except: return None
 
+    def port_to_num(self, value, pad_to=2):
+        value = self.check_hex(value)
+        try: return str(int(self.hex_swap(value),16)).rjust(pad_to)
+        except: pass
+        return "-1".rjust(pad_to)
+
     def print_types(self):
         self.u.resize(self.w, self.h)
         self.u.head("USB Types")
@@ -110,6 +116,7 @@ class USBMap:
         next_class = "AppleUSBHostMergeProperties"
         while True:
             pad = 21
+            last_w = self.w
             enabled = 0
             highest = b"\x00\x00\x00\x00"
             print_text = []
@@ -125,13 +132,18 @@ class USBMap:
                     enabled += 1
                     if self.hex_dec(self.hex_swap(addr)) > self.hex_dec(self.hex_swap(binascii.hexlify(highest).decode("utf-8"))):
                         highest = plist.extract_data(port["port"])
-                print_text.append("{}[{}] {}. {} | {} | Type {}{}".format(
-                    self.bs if "port" in port else "",
+                line = "[{}] {}. {} | {} ({}) | Type {}".format(
                     "#" if "port" in port else " ",
                     str(i).rjust(2),
                     x,
+                    self.port_to_num(addr),
                     addr,
                     port.get("UsbConnector",-1),
+                )
+                if len(line) > last_w: last_w = len(line)
+                print_text.append("{}{}{}".format(
+                    self.bs if "port" in port else "",
+                    line,
                     self.ce if "port" in port else ""
                 ))
                 comment = port.get("Comment",port.get("comment",None))
@@ -158,7 +170,7 @@ class USBMap:
                 next_class = "AppleUSBMergeNub" if pers["IOClass"] == "AppleUSBHostMergeProperties" else "AppleUSBHostMergeProperties"
                 print_text.append("C. Toggle IOClass to {}".format(next_class))
             self.save_plist()
-            self.u.resize(self.w, pad if pad>self.h else self.h)
+            self.u.resize(last_w, pad if pad>self.h else self.h)
             self.u.head("{} Ports".format(personality))
             print("")
             print("\n".join(print_text))
