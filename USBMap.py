@@ -686,6 +686,7 @@ class USBMap:
         pad = 11
         while True:
             extras = 0
+            last_w = 80
             self.check_by_ioreg(force=True)
             self.u.head("Discover USB Ports")
             check_ports = self.get_ports_and_devices()
@@ -710,15 +711,11 @@ class USBMap:
                     print("    ----- {}{} Controller{} -----".format(self.cs,r,self.ce))
                     last_cont = c
                     extras += 1
-                print("{}{}. {} | {} | {} ({}) | {} | Type {}{}".format(
+                line = "{}. {} | {} | {} ({}) | {} | Type {}".format(str(index+1).rjust(2),n,t,self.port_to_num(p),p,a,e)
+                if len(line) > last_w: last_w = len(line)
+                print("{}{}{}".format(
                         self.cs if any((port==x[1] for x in last_list)) else self.bs if len(total_ports.get(port,[])) else "",
-                        str(index+1).rjust(2),
-                        n,
-                        t,
-                        self.port_to_num(p),
-                        p,
-                        a,
-                        e,
+                        line,
                         self.ce if len(total_ports.get(port,[])) else ""
                     ))
                 # Initialize the last controller seen
@@ -761,7 +758,7 @@ class USBMap:
             print(", ".join(pop_list))
             temp_h = index+1+extras+pad+(1 if last_list else 0)
             h = temp_h if temp_h > 24 else 24
-            self.u.resize(80, h)
+            self.u.resize(last_w, h)
             print("Press Q then [enter] to stop")
             if last_list:
                 print("Press N then [enter] to nickname port{} {}".format(
@@ -869,6 +866,7 @@ class USBMap:
             self.save_plist()
             ports = [] # An empty list for index purposees
             extras = 0
+            last_w = 80
             self.u.head("Edit USB Ports")
             print("")
             if not self.merged_list:
@@ -888,8 +886,7 @@ class USBMap:
                     ports.append(port)
                     if port.get("enabled",False): counts[cont] += 1 # Increment the port counter for the selected controller
                     usb_connector = port.get("type_override", 3 if "XHCI" in self.merged_list[cont]["type"] else 0)
-                    print("{}[{}] {}. {} | {} | {} ({}) | {} | Type {}{}".format(
-                        self.bs if port.get("enabled",False) else "",
+                    line = "[{}] {}. {} | {} | {} ({}) | {} | Type {}".format(
                         "#" if port.get("enabled",False) else " ",
                         str(index).rjust(2),
                         port["name"],
@@ -898,6 +895,11 @@ class USBMap:
                         port["port"],
                         port["address"],
                         usb_connector,
+                    )
+                    if len(line) > last_w: last_w = len(line)
+                    print("{}{}{}".format(
+                        self.bs if port.get("enabled",False) else "",
+                        line,
                         self.ce if port.get("enabled",False) else ""
                     ))
                     if port.get("comment",None):
@@ -942,7 +944,7 @@ class USBMap:
             print("- Set custom names using this formula C:1,2:Name - Name = None to clear")
             temp_h = index+1+extras+pad
             h = temp_h if temp_h > 24 else 24
-            self.u.resize(80, h)
+            self.u.resize(last_w, h)
             menu = self.u.grab("Please make your selection:  ")
             if not len(menu):
                 continue
