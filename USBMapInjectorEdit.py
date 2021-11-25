@@ -295,7 +295,7 @@ class USBMap:
             print("M. Return To Menu")
             print("Q. Quit")
             print("")
-            menu = self.u.grab("Please select an option:  ")
+            menu = self.u.grab("Please select an IOKitPersonality to edit (1-{:,}):  ".format(len(pers)))
             if not len(menu): continue
             elif menu.lower() == "m": return
             elif menu.lower() == "q":
