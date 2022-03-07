@@ -1,4 +1,4 @@
-import os, sys, re, json, binascii, shutil
+import os, sys, re, json, binascii, shutil, subprocess
 from Scripts import run, utils, ioreg, plist, reveal
 from collections import OrderedDict
 from datetime import datetime
@@ -16,6 +16,7 @@ class USBMap:
         self.u = utils.Utils("USBMap Injector Edit")
         self.plist_path = None
         self.plist_data = None
+        self.smbios = self.current_smbios()
         self.cs = u"\u001b[32;1m"
         self.ce = u"\u001b[0m"
         self.bs = u"\u001b[36;1m"
@@ -79,6 +80,12 @@ class USBMap:
         print("")
         return self.u.grab("Press [enter] to return to the menu...")
 
+    def current_smbios(self):
+        if not sys.platform.lower() == "darwin": return None
+        try: return subprocess.Popen(["system_profiler","SPHardwareDataType"],stdout=subprocess.PIPE).stdout.read().decode("utf-8").split("Model Identifier: ")[1].split("\n")[0].strip()
+        except: pass
+        return None
+
     def choose_smbios(self,current=None,allow_return=True,prompt=None):
         self.u.resize(self.w, self.h)
         while True:
@@ -88,11 +95,13 @@ class USBMap:
                 print("Current: {}".format(current))
                 print("")
             if prompt: print(prompt+"\n")
+            if self.smbios: print("C. Use Current Machine's SMBIOS ({})".format(self.smbios))
             if allow_return: print("M. Return to Menu")
             print("Q. Quit")
             print("")
             menu = self.u.grab("Please type the new target SMBIOS (eg. iMac18,1):  ")
             if not len(menu): continue
+            elif menu.lower() == "c" and self.smbios: return self.smbios
             elif menu.lower() == "m" and allow_return: return
             elif menu.lower() == "q": self.u.custom_quit()
             else: return menu
@@ -107,6 +116,44 @@ class USBMap:
             self.show_error("Error Saving","Could not save to {}! {}".format(os.path.basename(self.plist_path),e))
         return False
 
+    def change_personality_name(self,personality):
+        self.u.resize(self.w, self.h)
+        while True:
+            pad = 4
+            print_text = [""]
+            print_text.append("Existing Personalities:")
+            print_text.append("")
+            print_text.extend(["  - {}{}{}{}".format(
+                self.bs if x==personality else "",
+                x,
+                self.ce if x==personality else "",
+                " (Currently Editing)" if x == personality else ""
+            ) for x in self.plist_data["IOKitPersonalities"]])
+            print_text.append("")
+            print_text.append("M. Return to Menu")
+            print_text.append("Q. Quit")
+            print_text.append("")
+            w_adj = max((len(x) for x in print_text))
+            h_adj = len(print_text) + pad
+            self.u.resize(w_adj if w_adj>self.w else self.w, h_adj if h_adj>self.h else self.h)
+            self.u.head("Change IOKitPersonality Name")
+            print("\n".join(print_text))
+            menu = self.u.grab("Please type the new IOKitPersonality name:  ")
+            if not len(menu): continue
+            elif menu.lower() == "m" or menu == personality: return personality
+            elif menu.lower() == "q": self.u.custom_quit()
+            elif menu in self.plist_data["IOKitPersonalities"]:
+                self.u.resize(self.w, self.h)
+                self.u.head("Personality Exists")
+                print("")
+                print("The following IOKitPersonality already exists:\n\n  - {}".format(menu))
+                print("")
+                self.u.grab("Press [enter] to return...")
+                continue
+            # Should have a valid name - let's pop our current value into the new one
+            self.plist_data["IOKitPersonalities"][menu] = self.plist_data["IOKitPersonalities"].pop(personality,None)
+            return menu
+
     def edit_ports(self,personality):
         pers = self.plist_data["IOKitPersonalities"][personality]
         if not pers.get("IOProviderMergeProperties",{}).get("ports",{}):
@@ -115,11 +162,10 @@ class USBMap:
         port_list = list(ports)
         next_class = "AppleUSBHostMergeProperties"
         while True:
-            pad = 21
-            last_w = self.w
+            pad = 4
             enabled = 0
             highest = b"\x00\x00\x00\x00"
-            print_text = []
+            print_text = [""]
             for i,x in enumerate(ports,start=1):
                 port = ports[x]
                 try:
@@ -127,7 +173,6 @@ class USBMap:
                 except Exception as e:
                     print(str(e))
                     continue
-                pad += 1
                 if "port" in port:
                     enabled += 1
                     if self.hex_dec(self.hex_swap(addr)) > self.hex_dec(self.hex_swap(binascii.hexlify(highest).decode("utf-8"))):
@@ -140,7 +185,6 @@ class USBMap:
                     addr,
                     port.get("UsbConnector",-1),
                 )
-                if len(line) > last_w: last_w = len(line)
                 print_text.append("{}{}{}".format(
                     self.bs if "port" in port else "",
                     line,
@@ -148,52 +192,53 @@ class USBMap:
                 ))
                 comment = port.get("Comment",port.get("comment",None))
                 if comment:
-                    pad += 1
                     print_text.append("    {}{}{}".format(self.nm,comment,self.ce))
             # Update the highest selected
             pers["IOProviderMergeProperties"]["port-count"] = plist.wrap_data(highest)
-            print_text.append("\nTotal Enabled: {}{:,}{}".format(
+            print_text.append("")
+            print_text.append("Total Enabled: {}{:,}{}".format(
                 self.cs if 0 < enabled < 16 else self.rs,
                 enabled,
                 self.ce
             ))
             if "model" in pers:
                 print_text.append("Target SMBIOS: {}".format(pers["model"]))
-                pad += 2
             if "IOClass" in pers:
                 print_text.append("Target Class:  {}".format(pers["IOClass"]))
-                pad += 2
             print_text.append("")
+            print_text.append("I. Change IOKitPersonality Name")
             if "model" in pers:
                 print_text.append("S. Change SMBIOS Target")
             if "IOClass" in pers:
                 next_class = "AppleUSBMergeNub" if pers["IOClass"] == "AppleUSBHostMergeProperties" else "AppleUSBHostMergeProperties"
                 print_text.append("C. Toggle IOClass to {}".format(next_class))
+            print_text.append("")
+            print_text.append("A. Select All")
+            print_text.append("N. Select None")
+            print_text.append("T. Show Types")
+            print_text.append("M. IOKitPersonality Menu")
+            print_text.append("Q. Quit")
+            print_text.append("")
+            print_text.append("- Select ports to toggle with comma-delimited lists (eg. 1,2,3,4,5)")
+            print_text.append("- Set a range of ports using this formula R:1-15:On/Off")
+            print_text.append("- Change types using this formula T:1,2,3,4,5:t where t is the type")
+            print_text.append("- Set custom names using this formula C:1,2:Name - Name = None to clear")
+            print_text.append("")
             self.save_plist()
-            self.u.resize(last_w, pad if pad>self.h else self.h)
+            w_adj = max((len(x) for x in print_text))
+            h_adj = len(print_text) + pad
+            self.u.resize(w_adj if w_adj>self.w else self.w, h_adj if h_adj>self.h else self.h)
             self.u.head("{} Ports".format(personality))
-            print("")
             print("\n".join(print_text))
-            print("")
-            print("A. Select All")
-            print("N. Select None")
-            print("T. Show Types")
-            print("P. IOKitPersonality Menu")
-            print("M. Main Menu")
-            print("Q. Quit")
-            print("")
-            print("- Select ports to toggle with comma-delimited lists (eg. 1,2,3,4,5)")
-            print("- Set a range of ports using this formula R:1-15:On/Off")
-            print("- Change types using this formula T:1,2,3,4,5:t where t is the type")
-            print("- Set custom names using this formula C:1,2:Name - Name = None to clear")
-            print("")
             menu = self.u.grab("Please make your selection:  ")
             if not len(menu): continue
-            elif menu.lower() == "p": return True
             elif menu.lower() == "m": return
             elif menu.lower() == "q":
                 self.u.resize(self.w, self.h)
                 self.u.custom_quit()
+            elif menu.lower() == "i":
+                personality = self.change_personality_name(personality)
+                pers = self.plist_data["IOKitPersonalities"][personality]
             elif menu.lower() == "s" and "model" in pers:
                 smbios = self.choose_smbios(pers["model"])
                 if smbios: pers["model"] = smbios
@@ -262,10 +307,10 @@ class USBMap:
 
     def pick_personality(self):
         if not self.plist_path or not self.plist_data: return
-        pers = list(self.plist_data["IOKitPersonalities"])
         while True:
-            pad = 9 + len(pers)
-            print_text = []
+            pad = 4
+            print_text = [""]
+            pers = list(self.plist_data["IOKitPersonalities"])
             for i,x in enumerate(pers,start=1):
                 personality = self.plist_data["IOKitPersonalities"][x]
                 ports = personality.get("IOProviderMergeProperties",{}).get("ports",{})
@@ -280,21 +325,20 @@ class USBMap:
                 ))
                 if "model" in personality:
                     print_text.append("    {}SMBIOS: {}{}".format(self.bs,personality["model"],self.ce))
-                    pad += 1
                 if "IOClass" in personality:
                     print_text.append("    {}Class:  {}{}".format(self.bs,personality["IOClass"],self.ce))
-                    pad += 1
-            self.u.resize(self.w, pad if pad>self.h else self.h)
+            print_text.append("")
+            print_text.append("S. Set All SMBIOS Targets")
+            print_text.append("C. Set All Classes to AppleUSBHostMergeProperties")
+            print_text.append("L. Set All Classes to AppleUSBMergeNub (Legacy)")
+            print_text.append("M. Return To Injector Selection Menu")
+            print_text.append("Q. Quit")
+            print_text.append("")
+            w_adj = max((len(x) for x in print_text))
+            h_adj = len(print_text) + pad
+            self.u.resize(w_adj if w_adj>self.w else self.w, h_adj if h_adj>self.h else self.h)
             self.u.head("Available IOKitPersonalities")
-            print("")
             print("\n".join(print_text))
-            print("")
-            print("S. Set All SMBIOS Targets")
-            print("C. Set All Classes to AppleUSBHostMergeProperties")
-            print("L. Set All Classes to AppleUSBMergeNub (Legacy)")
-            print("M. Return To Menu")
-            print("Q. Quit")
-            print("")
             menu = self.u.grab("Please select an IOKitPersonality to edit (1-{:,}):  ".format(len(pers)))
             if not len(menu): continue
             elif menu.lower() == "m": return
@@ -320,8 +364,7 @@ class USBMap:
                     assert 0 <= menu < len(pers)
                 except:
                     continue
-                out = self.edit_ports(pers[menu])
-                if out == None: return
+                self.edit_ports(pers[menu])
 
     def show_error(self,header,error):
         self.u.head(header)
@@ -413,16 +456,22 @@ class USBMap:
         print("")
         self.u.grab("Press [enter] to return...")
 
-    def main(self):
-        self.u.resize(self.w, self.h)
-        self.u.head()
-        print("")
-        print("Q. Quit")
-        print("")
-        print("Please drag and drop a USBMap(Legacy).kext, Info.plist,")
-        menu = self.u.grab("or UsbDumpEfi.efi output here to continue:  ")
-        if not len(menu): return
-        if menu.lower() == "q": self.u.custom_quit()
+    def main(self,path=None):
+        if path is None:
+            self.u.resize(self.w, self.h)
+            self.u.head()
+            print("")
+            print("NOTE:  All changes are done in-place, and happen immediately.")
+            print("       Please make sure you keep backups.")
+            print("")
+            print("Q. Quit")
+            print("")
+            print("Please drag and drop a USBMap(Legacy).kext, Info.plist,")
+            menu = self.u.grab("or UsbDumpEfi.efi output here to continue:  ")
+            if not len(menu): return
+            if menu.lower() == "q": self.u.custom_quit()
+        else:
+            menu = path
         # Check the path
         path = self.u.check_path(menu)
         try:
@@ -452,5 +501,7 @@ class USBMap:
 
 if __name__ == '__main__':
     u = USBMap()
+    path = sys.argv[1] if len(sys.argv)>1 else None
     while True:
-        u.main()
+        u.main(path=path)
+        path = None # Prevent a loop on exception
