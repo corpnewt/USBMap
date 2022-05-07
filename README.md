@@ -36,7 +36,7 @@ You can get the latest zip of this repo [here](https://github.com/corpnewt/USBMa
 
 ## Quick Start
 
-1. Make sure you've run `D. Discover Ports` at least from the main menu of USBMap.command so it knows what USB controllers you have
+1. Make sure you've run `D. Discover Ports` at least once from the main menu of USBMap.command so it knows what USB controllers you have
 2. Choose `K. Create Dummy USBMap.kext` via the main menu of USBMap.command
 3. Add the USBMap.kext dummy injector to your OC -> Kexts folder and config.plist -> Kernel -> Add
 4. Reboot
