@@ -394,13 +394,14 @@ class USBMap:
                 # Reset our indent to ensure the next check
                 last_indent = check_obj["indent"]
                 if any((x.search(line) for x in self.get_usb_ext_list())):
-                    controller = last_hub = None
                     break # Bail on valid device
                 elif self.usb_hub.search(line):
                     # Retain the last-seen hub device
                     last_hub = self.get_obj_from_line(line)
                 elif self.usb_cont.search(line):
                     controller = self.get_obj_from_line(line)
+                    if last_hub and not "EHCI" in controller["type"]: # Only map EHCI hubs
+                        controller = None
                     break # Bail if we hit a controller - as those don't nest
             if not controller: continue # No controller, nothing to do
             # Ensure the top-level controller is listed
@@ -412,7 +413,7 @@ class USBMap:
                 controllers[cont_full]["name"] = cont_name
                 controllers[cont_full]["address"] = cont_addr
                 controllers[cont_full]["ports"] = OrderedDict()
-            if last_hub and not "XHCI" in controller["type"]:
+            if last_hub and "EHCI" in controller["type"]:
                 # We got a hub that we can map
                 add_name = "HUB-{}".format(last_hub["name"].split("@")[-1])
                 if not add_name in controllers:
@@ -466,7 +467,7 @@ class USBMap:
             controllers[controller]["ioservice_path"] = path
         return controllers
 
-    def build_kext(self,modern=True,legacy=False,padded_to=0,skip_disabled=False):
+    def build_kext(self,modern=True,legacy=False,padded_to=0,skip_disabled=False,force_matching=None):
         if not modern and not legacy: return # wut - shouldn't happen
         self.u.resize(80, 24)
         empty_controllers = []
@@ -507,15 +508,15 @@ class USBMap:
         print("")
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
         print("Generating Info.plist{}...".format("" if len(title)==1 else "s"))
-        if modern: self.check_and_build(self.kext_path,self.info_path,skip_empty=skip_empty,legacy=False,skip_disabled=skip_disabled,padded_to=padded_to)
-        if legacy: self.check_and_build(self.legacy_kext_path,self.legacy_info_path,skip_empty=skip_empty,legacy=True,skip_disabled=skip_disabled,padded_to=padded_to)
+        if modern: self.check_and_build(self.kext_path,self.info_path,skip_empty=skip_empty,legacy=False,skip_disabled=skip_disabled,padded_to=padded_to,force_matching=force_matching)
+        if legacy: self.check_and_build(self.legacy_kext_path,self.legacy_info_path,skip_empty=skip_empty,legacy=True,skip_disabled=skip_disabled,padded_to=padded_to,force_matching=force_matching)
         print("Done.")
         print("")
         self.re.reveal(self.kext_path if modern else self.legacy_kext_path,True)
         self.u.grab("Press [enter] to return to the menu...")
 
-    def check_and_build(self,kext_path,info_path,skip_empty=True,legacy=False,skip_disabled=False,padded_to=0):
-        info_plist = self.build_info_plist(skip_empty=skip_empty,legacy=legacy,skip_disabled=skip_disabled,padded_to=padded_to)
+    def check_and_build(self,kext_path,info_path,skip_empty=True,legacy=False,skip_disabled=False,padded_to=0,force_matching=None):
+        info_plist = self.build_info_plist(skip_empty=skip_empty,legacy=legacy,skip_disabled=skip_disabled,padded_to=padded_to,force_matching=force_matching)
         if os.path.exists(kext_path):
             print("Located existing {} - removing...".format(os.path.basename(kext_path)))
             shutil.rmtree(kext_path,ignore_errors=True)
@@ -525,7 +526,7 @@ class USBMap:
         with open(info_path,"wb") as f:
             plist.dump(info_plist,f)
 
-    def build_info_plist(self,skip_empty=True,legacy=False,skip_disabled=False,padded_to=0):
+    def build_info_plist(self,skip_empty=True,legacy=False,skip_disabled=False,padded_to=0,force_matching=None):
         output_plist = {
             "CFBundleDevelopmentRegion": "English",
             "CFBundleGetInfoString": "v1.0",
@@ -553,13 +554,6 @@ class USBMap:
                 continue
             top_port = hs_port = ss_port = uk_port = 0
             top_data = self.hex_to_data("00000000")
-            providers = (
-                ("OHCI","AppleUSBOHCIPCI"),
-                ("UHCI","AppleUSBUHCIPCI"),
-                ("EHCI","AppleUSBEHCIPCI"),
-                ("20Hub","AppleUSB20InternalHub"),
-                ("XHCI","AppleUSBXHCIPCI")
-            )
             new_entry = {
                 "CFBundleIdentifier": "com.apple.driver.AppleUSBMergeNub" if legacy else "com.apple.driver.AppleUSBHostMergeProperties",
                 "IOClass": "AppleUSBMergeNub" if legacy else "AppleUSBHostMergeProperties", # Consider AppleUSBHostMergeProperties on 10.15+
@@ -570,8 +564,8 @@ class USBMap:
                         "pcidebug": self.merged_list[x].get("pci_debug")
                     }
                 },
-                # Provider class for OHCI, UHCI, EHCI, USB 2.0 hubs, and XHCI based on controller type - falls back to XHCI on no match
-                "IOProviderClass": next((y[1] for y in providers if y[0] in self.merged_list[x]["type"]),"AppleUSBXHCIPCI"),
+                # Pull the provider directly from the detected class
+                "IOProviderClass": self.merged_list[x]["type"],
                 "IOProviderMergeProperties": {
                     "kUSBMuxEnabled": False,
                     "port-count": 0,
@@ -587,6 +581,9 @@ class USBMap:
                 new_entry["IOProviderClass"] = "AppleUSB20InternalHub"
                 new_entry["IOProbeScore"] = 5000
                 save_key = "locationID"
+            elif force_matching and force_matching in pop_keys:
+                # Override any other detection
+                save_key = force_matching
             elif "pci_debug" in self.merged_list[x]:
                 # Better matching than IONameMatch and IOPathMatch
                 save_key = "IOParentMatch"
@@ -623,7 +620,8 @@ class USBMap:
                     top_port = port_number
                     top_data = self.hex_to_data(port["port"])
                 # Check port type prioritizing overrides if found
-                usb_connector = port.get("type_override", 3 if "XHCI" in self.merged_list[x]["type"] else 0)
+                usb_connector = port.get("type_override",port.get("connector",-1))
+                if usb_connector == -1: usb_connector = 3 if "XHCI" in self.merged_list[x]["type"] else 0
                 # Add the port with the connector type and port number
                 new_entry["IOProviderMergeProperties"]["ports"][port_name] = {
                     "UsbConnector": usb_connector,
@@ -860,7 +858,8 @@ class USBMap:
 
     def edit_plist(self):
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
-        pad = 28
+        pad = 29
+        path_match = False
         while True:
             self.u.resize(80, 24) # Resize smaller to force proper positioning
             self.save_plist()
@@ -885,7 +884,8 @@ class USBMap:
                     port = self.merged_list[cont]["ports"][port_num]
                     ports.append(port)
                     if port.get("enabled",False): counts[cont] += 1 # Increment the port counter for the selected controller
-                    usb_connector = port.get("type_override", 3 if "XHCI" in self.merged_list[cont]["type"] else 0)
+                    usb_connector = port.get("type_override",port.get("connector",-1))
+                    if usb_connector == -1: usb_connector = 3 if "XHCI" in self.merged_list[cont]["type"] else 0
                     line = "[{}] {}. {} | {} | {} ({}) | {} | Type {}".format(
                         "#" if port.get("enabled",False) else " ",
                         str(index).rjust(2),
@@ -934,6 +934,10 @@ class USBMap:
             print("D. Disable All Empty Ports")
             print("C. Clear Detected Items")
             print("T. Show Types")
+            if path_match:
+                print("H. Use IOParentMatch (Currently IOPathMatch)")
+            else:
+                print("H. Use IOPathMatch (Currently IOParentMatch)")
             print("")
             print("M. Main Menu")
             print("Q. Quit")
@@ -954,11 +958,11 @@ class USBMap:
             elif menu.lower() == "m":
                 return
             elif menu.lower() == "k":
-                self.build_kext(modern=True,legacy=False)
+                self.build_kext(modern=True,legacy=False,force_matching="IOPathMatch" if path_match else None)
             elif menu.lower() == "l":
-                self.build_kext(modern=False,legacy=True)
+                self.build_kext(modern=False,legacy=True,force_matching="IOPathMatch" if path_match else None)
             elif menu.lower() == "b":
-                self.build_kext(modern=True,legacy=True)
+                self.build_kext(modern=True,legacy=True,force_matching="IOPathMatch" if path_match else None)
             elif menu.lower() in ("n","a"):
                 # Iterate all ports and deselect them
                 for port in ports:
@@ -976,6 +980,8 @@ class USBMap:
                 for port in ports: port["items"] = []
             elif menu.lower() == "t":
                 self.print_types()
+            elif menu.lower() == "h":
+                path_match ^= True
             elif menu[0].lower() == "r":
                 # Should be a range
                 try:
