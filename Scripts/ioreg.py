@@ -161,7 +161,7 @@ class IOReg:
                 # Not first
                 x = self._get_dec_addr(x)
                 outs = x.split("@")[1].split(",")
-                d = outs[0]
-                f = 0 if len(outs) == 1 else outs[1]
+                d = outs[0].upper()
+                f = 0 if len(outs) == 1 else outs[1].upper()
                 dev_path += "/Pci(0x{},0x{})".format(d,f)
         return dev_path
