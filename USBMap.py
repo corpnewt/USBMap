@@ -687,6 +687,7 @@ class USBMap:
             last_w = 80
             self.check_by_ioreg(force=True)
             self.u.head("Discover USB Ports")
+            print("")
             check_ports = self.get_ports_and_devices()
             # Walk them and check for differences
             new_last_list = []
