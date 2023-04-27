@@ -164,6 +164,7 @@ class USBMap:
 
     def save_plist(self,controllers=None):
         if controllers == None: controllers = self.merged_list
+        self.sanitize_controllers(controllers)
         # Ensure the lists are the same
         try:
             with open(self.usb_list,"wb") as f:
@@ -172,6 +173,14 @@ class USBMap:
         except Exception as e:
             print("Could not save to USB.plist! {}".format(e))
         return False
+
+    def sanitize_controllers(self, controllers=None):
+        if controllers is None: controllers = self.merged_list
+        # Walk each controller and strip any red ansi escapes from the names
+        for controller in controllers:
+            if not "ports" in controllers[controller]: continue
+            for port in controllers[controller]["ports"]:
+                controllers[controller]["ports"][port]["items"] = [x.replace(self.rs,"").replace(self.ce,"") for x in controllers[controller]["ports"][port]["items"]]
 
     def sanitize_ioreg(self,ioreg):
         # Walks the passed ioreg and attempts to fix devices with newlines in their names
@@ -271,6 +280,36 @@ class USBMap:
                     last_root = last_root["items"][p["id"]]
         return ports
 
+    def get_sp_usb(self,indent="    "):
+        # Gather a top-level array of USB devices plugged in per system_profiler
+        sp_usb_list = []
+        try:
+            if os.path.exists("sp_usb_list.txt"):
+                with open("sp_usb_list.txt","rb") as f:
+                    sp_usb_xml = plist.load(f)
+            else:
+                sp_usb_xml = plist.loads(self.r.run({"args":["system_profiler","-xml","-detaillevel","mini","SPUSBDataType"]})[0])
+        except:
+            return sp_usb_list
+        items_list = []
+        for top in sp_usb_xml:
+            if "_items" in top:
+                items_list.extend(top["_items"])
+        while items_list:
+            item = items_list.pop()
+            if "location_id" in item:
+                try: item["location_id_adjusted"] = item["location_id"][2:].split()[0]
+                except: continue # Broken
+                if not "indent" in item:
+                    item["indent"] = ""
+                sp_usb_list.append(item)
+            if "_items" in item:
+                new_items = item.pop("_items")
+                for i in new_items:
+                    i["indent"] = item.get("indent","")+indent
+                items_list.extend(new_items)
+        return sp_usb_list
+
     def map_inheritance(self,top_level,level=1,indent="    "):
         # Iterates through all "items" entries in the top_level dict
         # and returns a formatted string showing inheritance
@@ -284,7 +323,7 @@ class USBMap:
                 addr = "Unknown"
                 name = check_entry.get("name",check_entry.get("type","Unknown"))
             value = (indent * level) + "- {}{}".format(name, " (HUB-{})".format(addr) if is_hub and check_entry.get("map_hub",False) and self.map_hubs else "")
-            text.append(value)
+            text.append((value,name))
             # Verify if we're on a hub and mapping those
             if is_hub and check_entry.get("map_hub",False) and self.map_hubs:
                 # Got a hub - this will be mapped elsewhere
@@ -307,24 +346,50 @@ class USBMap:
         if not port: return [] # No items, or the port wasn't found?
         return self.map_inheritance(port)
 
-    def get_ports_and_devices_for_controller(self,controller,indent="    "):
+    def get_ports_and_devices_for_controller(self,controller,sp_usb_list=[],indent="    "):
         self.check_controllers()
         assert controller in self.controllers # Error if the controller doesn't exist
         port_dict = OrderedDict()
+        # Gather a list of any duplicate port addresses
+        port_addrs = [self.controllers[controller]["ports"][p]["address"] for p in self.controllers[controller]["ports"]]
+        dupe_addrs = [x for x in port_addrs if port_addrs.count(x)>1]
+        # Walk the ports
         for port_num in sorted(self.controllers[controller]["ports"]):
             port = self.controllers[controller]["ports"][port_num]
             # The name of each entry should be "PortName - PortNum (Controller)"
             port_num = self.hex_dec(self.hex_swap(port["port"]))
             entry_name = "{} | {} | {} | {} | {} | {} | {}".format(port["name"],port["type"],port["port"],port["address"],port.get("connector",-1),controller,self.controllers[controller]["parent"])
-            port_dict[entry_name] = self.get_items_for_port(port["id"],indent=indent)
+            inheritance = self.get_items_for_port(port["id"],indent=indent)
+            port_dict[entry_name] = [x[0] for x in inheritance] # Get the values
+            names = [x[1] for x in inheritance] # Get the original names for comparing
+            # Check if we're missing any items from the system_profiler output for that port
+            for item in sp_usb_list:
+                try:
+                    l_id = item["location_id_adjusted"]
+                    name = item["_name"]
+                except: continue # Broken?
+                if not l_id.startswith(port["address"].rstrip("0")):
+                    continue # Not our port
+                if name in names:
+                    continue # Already have it
+                # We found one that we didn't have - check if it's potentially on a duplicate
+                # address and highlight it
+                port_dict[entry_name].append("{}* {}{}{}".format(
+                    item.get("indent",indent),
+                    self.rs if port["address"] in dupe_addrs else "",
+                    name,
+                    self.ce if port["address"] in dupe_addrs else ""
+                ))
         return port_dict
 
     def get_ports_and_devices(self,indent="    "):
         # Returns a dict of all ports and their connected devices
         self.check_controllers()
         port_dict = OrderedDict()
+        # Get the system_profiler USB output
+        sp_usb_list = self.get_sp_usb()
         for x in self.controllers:
-            port_dict.update(self.get_ports_and_devices_for_controller(x,indent=indent))
+            port_dict.update(self.get_ports_and_devices_for_controller(x,sp_usb_list=sp_usb_list,indent=indent))
         return port_dict
 
     def get_populated_count_for_controller(self,controller):
@@ -681,7 +746,6 @@ class USBMap:
         total_ports = OrderedDict()
         last_ports  = OrderedDict()
         last_list   = []
-        pad = 11
         while True:
             extras = 0
             last_w = 80
@@ -703,6 +767,8 @@ class USBMap:
             # Enumerate the ports
             last_cont = None
             cont_count = {}
+            show_red_warning = False
+            pad = 11
             for index,port in enumerate(check_ports):
                 n,t,p,a,e,c,r = port.split(" | ")
                 if len(total_ports.get(port,[])): cont_count[c] = cont_count.get(c,0)+1
@@ -740,7 +806,12 @@ class USBMap:
                 if len(check_ports[port]):
                     extras += len(check_ports[port])
                     print("\n".join(check_ports[port]))
+                    if any((self.rs in red_check for red_check in check_ports[port])):
+                        show_red_warning = True
             print("")
+            if show_red_warning:
+                pad = 13
+                print("- Items in {}RED{} do not have accurate addressing\n".format(self.rs,self.ce))
             # List the controllers and their port counts
             print("Populated:")
             pop_list = []
