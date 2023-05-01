@@ -366,7 +366,7 @@ class USBMap:
             for item in sp_usb_list:
                 try:
                     l_id = item["location_id_adjusted"]
-                    name = item["_name"]
+                    name = item["_name"].lstrip() # Strip leading spaces to match the ioreg info
                 except: continue # Broken?
                 if not l_id.startswith(port["address"].rstrip("0")):
                     continue # Not our port
