@@ -159,6 +159,7 @@ class USBMap:
         if not pers.get("IOProviderMergeProperties",{}).get("ports",{}):
             return self.show_error("No Ports Defined","There are no ports defined for {}!".format(personality))
         ports = pers["IOProviderMergeProperties"]["ports"]
+        sorted_ports = sorted(ports,key=lambda x:ports[x].get("port",ports[x].get("#port")))
         port_list = list(ports)
         next_class = "AppleUSBHostMergeProperties"
         while True:
@@ -166,7 +167,7 @@ class USBMap:
             enabled = 0
             highest = b"\x00\x00\x00\x00"
             print_text = [""]
-            for i,x in enumerate(ports,start=1):
+            for i,x in enumerate(sorted_ports,start=1):
                 port = ports[x]
                 try:
                     addr = binascii.hexlify(plist.extract_data(port.get("port",port.get("#port")))).decode("utf-8")
