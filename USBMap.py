@@ -39,6 +39,7 @@ class USBMap:
         self.rs = u"\u001b[31;1m"
         self.nm = u"\u001b[35;1m"
         self.ioreg = self.populate_ioreg()
+        self.local_ioreg = False # Switched to true if we're reading from a local ioreg.txt file
         self.by_ioreg = None
         self.usb_list = "./Scripts/USB.plist"
         self.output   = "./Results"
@@ -48,6 +49,10 @@ class USBMap:
         self.info_path = os.path.join(self.kext_path,"Contents","Info.plist")
         self.legacy_kext_path = os.path.join(self.output,"USBMapLegacy.kext")
         self.legacy_info_path = os.path.join(self.legacy_kext_path,"Contents","Info.plist")
+        self.dummy_kext_path = os.path.join(self.output,"USBMapDummy.kext")
+        self.dummy_info_path = os.path.join(self.dummy_kext_path,"Contents","Info.plist")
+        self.dummy_legacy_kext_path = os.path.join(self.output,"USBMapLegacyDummy.kext")
+        self.dummy_legacy_info_path = os.path.join(self.dummy_legacy_kext_path,"Contents","Info.plist")
         self.oc_patches = os.path.join(self.output,"patches_OC.plist")
         self.clover_patches = os.path.join(self.output,"patches_Clover.plist")
         self.merged_list = OrderedDict()
@@ -198,6 +203,7 @@ class USBMap:
             with open("ioreg.txt","rb") as f:
                 ioreg = f.read().decode("utf-8",errors="ignore").split("\n")
                 self.i.ioreg = {"IOService":ioreg}
+            self.local_ioreg = True
         else:
             ioreg = self.i.get_ioreg()
         return self.sanitize_ioreg(ioreg)
@@ -232,6 +238,7 @@ class USBMap:
         if os.path.exists("ioreg.txt"):
             with open("ioreg.txt","rb") as f:
                 ioreg = f.read().decode("utf-8",errors="ignore")
+            self.local_ioreg = True
         else:
             ioreg = self.r.run({"args":["ioreg","-c","IOUSBDevice","-w0"]})[0]
         ioreg = self.sanitize_ioreg(ioreg)
@@ -284,9 +291,12 @@ class USBMap:
         # Gather a top-level array of USB devices plugged in per system_profiler
         sp_usb_list = []
         try:
-            if os.path.exists("sp_usb_list.txt"):
-                with open("sp_usb_list.txt","rb") as f:
-                    sp_usb_xml = plist.load(f)
+            if self.local_ioreg: # Only consider the system_profiler.txt if we have a local ioreg.txt
+                if os.path.exists("system_profiler.txt"):
+                    with open("system_profiler.txt","rb") as f:
+                        sp_usb_xml = plist.load(f)
+                else: # Not found - just return the empty list to avoid merging improper info
+                    return sp_usb_list
             else:
                 sp_usb_xml = plist.loads(self.r.run({"args":["system_profiler","-xml","-detaillevel","mini","SPUSBDataType"]})[0])
         except:
@@ -532,7 +542,7 @@ class USBMap:
             controllers[controller]["ioservice_path"] = path
         return controllers
 
-    def build_kext(self,modern=True,legacy=False,padded_to=0,skip_disabled=False,force_matching=None):
+    def build_kext(self,modern=True,legacy=False,dummy=False,padded_to=0,skip_disabled=False,force_matching=None):
         if not modern and not legacy: return # wut - shouldn't happen
         self.u.resize(80, 24)
         empty_controllers = []
@@ -567,17 +577,40 @@ class USBMap:
                         break
         # Build the kext
         title = []
-        if modern: title.append(os.path.basename(self.kext_path))
-        if legacy: title.append(os.path.basename(self.legacy_kext_path))
+        if modern: title.append(os.path.basename(self.dummy_kext_path if dummy else self.kext_path))
+        if legacy: title.append(os.path.basename(self.dummy_legacy_kext_path if dummy else self.legacy_kext_path))
         self.u.head("Build {}".format(" and ".join(title)))
         print("")
         os.chdir(os.path.dirname(os.path.realpath(__file__)))
         print("Generating Info.plist{}...".format("" if len(title)==1 else "s"))
-        if modern: self.check_and_build(self.kext_path,self.info_path,skip_empty=skip_empty,legacy=False,skip_disabled=skip_disabled,padded_to=padded_to,force_matching=force_matching)
-        if legacy: self.check_and_build(self.legacy_kext_path,self.legacy_info_path,skip_empty=skip_empty,legacy=True,skip_disabled=skip_disabled,padded_to=padded_to,force_matching=force_matching)
+        reveal = None
+        if modern:
+            reveal = self.dummy_kext_path if dummy else self.kext_path
+            self.check_and_build(
+                reveal,
+                self.dummy_info_path if dummy else self.info_path,
+                skip_empty=skip_empty,
+                legacy=False,
+                skip_disabled=skip_disabled,
+                padded_to=padded_to,
+                force_matching=force_matching
+            )
+        if legacy:
+            if not reveal:
+                reveal = self.dummy_legacy_kext_path if dummy else self.legacy_kext_path
+            self.check_and_build(
+                self.dummy_legacy_kext_path if dummy else self.legacy_kext_path,
+                self.dummy_legacy_info_path if dummy else self.legacy_info_path,
+                skip_empty=skip_empty,
+                legacy=True,
+                skip_disabled=skip_disabled,
+                padded_to=padded_to,
+                force_matching=force_matching
+            )
         print("Done.")
         print("")
-        self.re.reveal(self.kext_path if modern else self.legacy_kext_path,True)
+        if reveal:
+            self.re.reveal(reveal,True)
         self.u.grab("Press [enter] to return to the menu...")
 
     def check_and_build(self,kext_path,info_path,skip_empty=True,legacy=False,skip_disabled=False,padded_to=0,force_matching=None):
@@ -589,7 +622,7 @@ class USBMap:
         os.makedirs(os.path.join(kext_path,"Contents"))
         print("Writing Info.plist...")
         with open(info_path,"wb") as f:
-            plist.dump(info_plist,f)
+            plist.dump(info_plist,f,sort_keys=False)
 
     def build_info_plist(self,skip_empty=True,legacy=False,skip_disabled=False,padded_to=0,force_matching=None):
         output_plist = {
@@ -634,7 +667,7 @@ class USBMap:
                 "IOProviderMergeProperties": {
                     "kUSBMuxEnabled": False,
                     "port-count": 0,
-                    "ports": {}
+                    "ports": OrderedDict()
                 },
                 "model": self.smbios
             }
@@ -1394,7 +1427,7 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
             "" if self.merged_list else " (Must Discover Ports First)",
             self.ce
         ))
-        print("{}K. Create Dummy USBMap.kext{}{}".format(
+        print("{}K. Create USBMapDummy.kext{}{}".format(
             "" if self.merged_list else self.rs,
             "" if self.merged_list else " (Must Discover Ports First)",
             self.ce
@@ -1417,7 +1450,7 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
             self.u.resize(80, 24)
             self.u.custom_quit()
         if menu.lower() == "k" and self.merged_list:
-            self.build_kext(modern=True,legacy=True,padded_to=26)
+            self.build_kext(modern=True,legacy=True,dummy=True,padded_to=26)
         elif menu.lower() == "r":
             try:
                 # Reset the merged_list and repopulate the controllers
