@@ -378,7 +378,7 @@ class USBMap:
                     l_id = item["location_id_adjusted"]
                     name = item["_name"].lstrip() # Strip leading spaces to match the ioreg info
                 except: continue # Broken?
-                if not l_id.startswith(port["address"].rstrip("0")):
+                if not l_id.rstrip("0") == port["address"].rstrip("0"):
                     continue # Not our port
                 if name in names:
                     continue # Already have it
