@@ -62,9 +62,11 @@ class USBMap:
                 with open(self.usb_list,"rb") as f:
                     self.merged_list = plist.load(f,dict_type=OrderedDict)
             except: pass
-        if not isinstance(self.merged_list,dict): self.merged_list = OrderedDict()
-        self.check_controllers()
-        self.connected_controllers = self.populate_controllers()
+        if not isinstance(self.merged_list,dict):
+            self.merged_list = OrderedDict()
+        # Populate the controllers and initialize our addresses list
+        self.connected_controllers = self.check_controllers()
+        self.all_addrs = []
         # Get illegal names
         self.plugin_path = "/System/Library/Extensions/IOUSBHostFamily.kext/Contents/PlugIns"
         self.illegal_names = self.get_illegal_names()
@@ -242,29 +244,45 @@ class USBMap:
         else:
             ioreg = self.r.run({"args":["ioreg","-c","IOUSBDevice","-w0"]})[0]
         ioreg = self.sanitize_ioreg(ioreg)
+        port_map = self.get_port_map_list()
         # Trim the list down to only what we want
         valid = [x.replace("|"," ").replace("+-o ","").split(", registered")[0] for x in ioreg.split("\n") if any((y.search(x) for y in self.get_map_list()))]
-        # Initialize our dict
+        # Initialize our dict and a list for all addresses
         ports = {"items":{}}
-        for index,wline in enumerate(valid):
-            # Walk until we find a valid device, then walk backward to figure out the pathing
-            if any((x.search(wline) for x in self.get_usb_ext_list())):
-                obj = self.get_obj_from_line(wline)
-                if not obj: continue # bad value - skip
+        addrs = []
+        path  = []
+        for line in valid:
+            # Check each line to pull addresses for later use if not a controller/mapped hub
+            if not (self.usb_cont.search(line) or (self.map_hubs and self.usb_hub.search(line))):
+                try:
+                    addr = line.split("@")[-1].split("<class ")[0].strip()
+                    if not addr in addrs:
+                        addrs.append(addr)
+                except:
+                    pass
+            # Resolve the line to an object
+            obj = self.get_obj_from_line(line)
+            if not obj:
+                continue # borked
+            if path:
+                # Walk our path in reverse and remove any entry
+                # whose indent is >= our current object as none can
+                # be its parent
+                for p in path[::-1]:
+                    if p["indent"] >= obj["indent"]:
+                        del path[-1]
+                    else:
+                        break
+            # Let's see if we got a controller
+            if self.usb_cont.search(line):
+                # Reset the path to the new controller
                 path = [obj]
-                last_indent = obj["indent"]
-                # Walk in reverse, keeping track of only port/hub/controller objects that are less indented
-                for line in valid[index::-1]:
-                    obj = self.get_obj_from_line(line)
-                    if not obj: continue # bad value - skip
-                    if obj["indent"] >= last_indent: continue # Only check for parent objects
-                    # Reset our indent to ensure the next check
-                    last_indent = obj["indent"]
-                    # We got a USB port, hub, or controller - add it
-                    path.append(obj)
-                    if self.usb_cont.search(line): break # We hit a controller, break out to avoid nesting under another
-                # Reverse the path order to reflect top-level elements
-                path = path[::-1]
+                continue
+            if not path:
+                continue
+            # Check if we're mapping hubs, matched the hub regex, and the root controller is EHCI
+            path.append(obj)
+            if any((x.search(line) for x in self.get_usb_ext_list())):
                 map_hub = True # Assume we map unless a parent is XHCI - then aggregate XHCI hubs under the parent ports
                 if any(("XHCI" in x["type"] for x in path)):
                     # Let's omit USB hub ports from XHCI controller outputs as we do not map these and they just add clutter
@@ -285,7 +303,9 @@ class USBMap:
                         last_root["items"][p["id"]] = p
                     # Reset our reference to the current scope
                     last_root = last_root["items"][p["id"]]
-        return ports
+        # Update a local copy of addresses
+        self.all_addrs = addrs
+        return ports  
 
     def get_sp_usb(self,indent="    "):
         # Gather a top-level array of USB devices plugged in per system_profiler
@@ -378,14 +398,31 @@ class USBMap:
                     l_id = item["location_id_adjusted"]
                     name = item["_name"].lstrip() # Strip leading spaces to match the ioreg info
                 except: continue # Broken?
-                if not l_id.rstrip("0") == port["address"].rstrip("0"):
+                # Get the closest address - if any
+                if l_id in self.all_addrs:
+                    closest_addr = l_id
+                else:
+                    l_id_strip = l_id.rstrip("0")
+                    closest_addr = None
+                    for addr in self.all_addrs:
+                        addr_strip = addr.rstrip("0")
+                        if l_id_strip == addr_strip:
+                            # Got an exact match - save it
+                            closest_addr = addr
+                            break
+                        if l_id_strip.startswith(addr_strip) and (not closest_addr or len(addr_strip) > len(closest_addr.rstrip("0"))):
+                            # We got a *closer* address - save it
+                            closest_addr = addr
+                if closest_addr != port["address"]:
                     continue # Not our port
                 if name in names:
                     continue # Already have it
+                # Adjust the indent as needed - useful for formatting nested HUB ports
+                ind = item.get("indent",indent)[len(indent)*self.controllers[controller].get("nest_level",0):]
                 # We found one that we didn't have - check if it's potentially on a duplicate
                 # address and highlight it
                 port_dict[entry_name].append("{}* {}{}{}".format(
-                    item.get("indent",indent),
+                    ind,
                     self.rs if port["address"] in dupe_addrs else "",
                     name,
                     self.ce if port["address"] in dupe_addrs else ""
@@ -428,117 +465,131 @@ class USBMap:
     def populate_controllers(self):
         assert self.ioreg != None # Error if we have no ioreg to iterate
         self.smbios = None
+        port_map = self.get_port_map_list()
         controllers = OrderedDict()
-        # Trim the list down to only what we want
-        valid = [x.replace("|"," ").replace("+-o ","").split(", registered")[0] for x in self.ioreg if any((y.search(x) for y in self.get_map_list()))]
-        for index,wline in enumerate(valid):
-            # Walk until we find a port, then walk backward to figure out the controller
-            if not any((x.search(wline) for x in self.get_port_map_list())): continue
-            # We got a port - go backward until we find the controller/hub, but outright bail if we find a device
-            obj = self.get_obj_from_line(wline)
-            if not obj: continue # bad value - skip
+        # Trim the list down to only what we want - and the indexes in self.ioreg where they show up
+        map_list = self.get_map_list()
+        map_list.extend([
+            re.compile("<class IOPlatformExpertDevice,"), # Catch SMBIOS info
+            re.compile("<class IOPCIDevice,") # Get parent devices
+        ])
+        valid = [(x.replace("|"," ").replace("+-o ","").split(", registered")[0],i) for i,x in enumerate(self.ioreg) if any((y.search(x) for y in map_list))]
+        controllers = {}
+        cont_list = []
+        last_port = None
+        last_pci  = None
+        for line,i in valid:
+            if "<class IOPlatformExpertDevice," in line:
+                # Retain the SMBIOS
+                self.smbios = line.split("<class")[0].strip()
+                continue
+            elif "<class IOPCIDevice," in line:
+                # Retain the last PCI device found
+                last_pci = (line,i)
+                continue
+            # Try to extract the object info from the line
+            obj = self.get_obj_from_line(line)
+            if not obj:
+                continue # Borked
             # Reorganize the dict slightly
             obj["full_name"] = obj["name"]
-            obj["address"] = obj["name"].split("@")[-1]
-            obj["name"] = obj["full_name"].split("@")[0]
-            obj["items"] = []
-            # Find its port number first in the full ioservice dump
-            port_primed = False
-            for line in self.ioreg:
-                if port_primed:
+            obj["name"]      = obj["full_name"].split("@")[0]
+            obj["address"]   = obj["full_name"].split("@")[-1]
+            obj["items"]     = []
+            # Let's see if we've jumped scope
+            if cont_list:
+                # Walk our cont_list in reverse and remove any entry
+                # whose indent is >= our current object as none can
+                # be its parent
+                for c in cont_list[::-1]:
+                    if controllers[c]["indent"] >= obj["indent"]:
+                        del cont_list[-1]
+                    else:
+                        break
+            if self.usb_cont.search(line):
+                # Got a controller match
+                last_controller = obj["full_name"]
+                # Update and add the controller to the controllers dict
+                obj["ports"]   = OrderedDict()
+                obj["index"]   = i
+                controllers[last_controller] = obj
+                # We cannot nest controllers, only hubs (apparently) - so we start our
+                # cont_list over with the current controller
+                cont_list = [last_controller]
+                last_port = None # Reset this as well to prevent cross-controller mistakes
+                # Let's try to scrape other info about the controller here
+                if not last_pci or last_pci[1]+1 >= len(self.ioreg):
+                    continue # wut... missing the PCI parent, or out of range somehow
+                # Set some info based on the PCI parent
+                obj["parent"] = last_pci[0].strip().split("  <class")[0]
+                obj["parent_name"],temp_addr = obj["parent"].split("@")
+                obj["parent_index"] = last_pci[1]
+                try:
+                    major,minor = temp_addr.split(",") if "," in temp_addr else temp_addr,"0"
+                    acpi_addr = "0x{}{}".format(major.rjust(4,"0"),minor.rjust(4,"0"))
+                    obj["acpi_address"] = "Zero" if acpi_addr == "0x00000000" else acpi_addr
+                except: pass
+                for line in self.ioreg[last_pci[1]+1:]:
+                    if line.replace("|","").strip() == "}":
+                        break # We hit the end of that PCI device
+                    elif '"acpi-path"' in line:
+                        try: obj["acpi_path"] = line.split('"')[-2]
+                        except: pass
+                    elif '"pcidebug"' in line:
+                        try: obj["pci_debug"] = line.split('"')[-2]
+                        except: pass
+                    if obj.get("acpi_path") and obj.get("pci_debug"):
+                        break # Got what we needed, no need to keep searching
+            elif not cont_list:
+                # We don't have any top level controllers, and the current line wasn't one - skip it
+                continue
+            # Check if we're mapping hubs, matched the hub regex, and the root controller is EHCI
+            elif self.map_hubs and self.usb_hub.search(line) and "EHCI" in controllers[cont_list[0]]["type"]:
+                # Gather our hub info and push it to the cont_list
+                last_controller = "HUB-{}".format(obj["address"])
+                # Update and add the hub to the controllers dict
+                obj["ports"]       = OrderedDict()
+                obj["index"]       = i
+                obj["is_hub"]      = True
+                obj["locationid"]  = self.hex_dec(obj["address"])
+                obj["parent"]      = last_controller
+                obj["parent_name"] = controllers[cont_list[0]]["name"]
+                obj["nest_level"]  = len(cont_list)
+                controllers[last_controller] = obj
+                # Check if we have a last port - and update that it contains a hub
+                if last_port: last_port["contains_hub"] = True
+                # Update controller pathing
+                cont_list.append(last_controller)
+            elif any((x.search(line) for x in port_map)):
+                # We got a port - make sure that if it's an XHCI hub port we don't map it
+                if self.usb_hubp.search(line) and not "EHCI" in controllers[cont_list[0]]["type"]:
+                    continue
+                if i+1 >= len(self.ioreg):
+                    continue # wut... out of range somehow
+                # Let's walk the ioreg list and gather info about the port specifically
+                for line in self.ioreg[i+1:]:
                     if line.replace("|","").strip() == "}":
                         break # We hit the end of that port
-                    if '"port" = ' in line:
+                    elif '"port" = ' in line:
                         obj["port"] = line.split("<")[1].split(">")[0]
-                        continue
-                    if '"UsbConnector" = ' in line:
+                    elif '"UsbConnector" = ' in line:
                         try: obj["connector"] = int(line.split(" = ")[1].strip())
                         except: obj["connector"] = -1 # Unknown
-                        continue
-                    if obj.get("port") and obj.get("connector"): break
-                # Verify by full name and id
-                if obj["full_name"] in line and obj["id"] in line:
-                    port_primed = True # We found it!
-            last_indent = obj["indent"]
-            controller = last_hub = None
-            # Walk in reverse, keeping track of only port/hub/controller objects that are less indented
-            for line in valid[index::-1]:
-                check_obj = self.get_obj_from_line(line)
-                if not check_obj: continue # Bad data
-                if check_obj["indent"] >= last_indent: continue # Only check for parent objects
-                # Reset our indent to ensure the next check
-                last_indent = check_obj["indent"]
-                if any((x.search(line) for x in self.get_usb_ext_list())):
-                    break # Bail on valid device
-                elif self.usb_hub.search(line):
-                    # Retain the last-seen hub device
-                    last_hub = self.get_obj_from_line(line)
-                elif self.usb_cont.search(line):
-                    controller = self.get_obj_from_line(line)
-                    if last_hub and not "EHCI" in controller["type"]: # Only map EHCI hubs
-                        controller = None
-                    break # Bail if we hit a controller - as those don't nest
-            if not controller: continue # No controller, nothing to do
-            # Ensure the top-level controller is listed
-            add_name = cont_full = controller["name"]
-            cont_name, cont_addr = cont_full.split("@")
-            if not cont_full in controllers:
-                # Ensure the parent controller exists regardless
-                controllers[cont_full] = controller
-                controllers[cont_full]["name"] = cont_name
-                controllers[cont_full]["address"] = cont_addr
-                controllers[cont_full]["ports"] = OrderedDict()
-            if last_hub and "EHCI" in controller["type"]:
-                # We got a hub that we can map
-                add_name = "HUB-{}".format(last_hub["name"].split("@")[-1])
-                if not add_name in controllers:
-                    controllers[add_name] = {}
-                    for key in last_hub: controllers[add_name][key] = last_hub[key]
-                    controllers[add_name]["is_hub"] = True
-                    controllers[add_name]["name"],controllers[add_name]["address"] = last_hub["name"].split("@")
-                    controllers[add_name]["locationid"] = self.hex_dec(controllers[add_name]["address"]) # Only add the location for USB 2 HUBs
-                    controllers[add_name]["ports"] = OrderedDict()
-                    controllers[add_name]["parent"] = "HUB-"+controllers[add_name]["address"]
-                    controllers[add_name]["parent_name"] = controller["name"] if controller else "HUB"
-            controllers[add_name]["ports"][obj["port"]] = obj
-        # Walk the controllers and retain the parent_name, acpi_path, and _ADR values
-        parent = parent_name = acpi_path = acpi_addr = pcidebug = None
-        for acpi_line in self.ioreg:
-            if "<class IOPlatformExpertDevice," in acpi_line:
-                self.smbios = acpi_line.split("+-o ")[1].split("<class")[0].strip()
-            elif '"acpi-path"' in acpi_line:
-                acpi_path = acpi_line.split('"')[-2]
-                continue
-            elif "<class IOPCIDevice," in acpi_line:
-                # Let's get the parent name and acpi_addr - it'll look like @1F,3 - but we want it in 0x001F0003 format
-                try:
-                    parent      = acpi_line.split("+-o ")[1].split("  <class")[0]
-                    parent_name,temp_addr = parent.split("@")
-                    major,minor = temp_addr.split(",") if "," in temp_addr else temp_addr,"0"
-                    acpi_addr   = "0x{}{}".format(major.rjust(4,"0"),minor.rjust(4,"0"))
-                    acpi_addr   = "Zero" if acpi_addr == "0x00000000" else acpi_addr
-                except Exception as e:
-                    acpi_addr = None
-                continue
-            elif '"pcidebug"' in acpi_line:
-                pcidebug = acpi_line.split('"')[-2]
-                continue
-            # Try to get the object@address
-            try:
-                current_obj = acpi_line.split("+-o ")[1].split("  <class")[0]
-            except: continue
-            if current_obj in controllers:
-                controllers[current_obj]["parent"] = parent
-                controllers[current_obj]["parent_name"] = parent_name
-                controllers[current_obj]["acpi_path"] = acpi_path
-                controllers[current_obj]["acpi_address"] = acpi_addr if acpi_addr else "Zero"
-                controllers[current_obj]["pci_debug"] = pcidebug
-                # Reset the temp vars
-                parent_name = acpi_addr = acpi_path = None
+                    elif '"comment" = "' in line.lower():
+                        try: obj["ioreg_comment"] = line.split('"')[-2]
+                        except: pass
+                    if all((obj.get(x) for x in ("port","connector","ioreg_comment"))):
+                        break # Got what we needed, no need to keep searching
+                # Save what we found
+                controllers[cont_list[-1]]["ports"][obj["port"]] = obj
+                last_port = obj # Retain this so we can note if it contains a hub
         # Let's get the IOService path for each controller
         for controller in controllers:
+            if controllers[controller].get("is_hub"):
+                continue # Skip hubs
             path = self.get_ioservice_path(controllers[controller]["line"])
-            if not path: continue
+            if not path:
+                continue
             controllers[controller]["ioservice_path"] = path
         return controllers
 
@@ -718,7 +769,7 @@ class USBMap:
                     top_port = port_number
                     top_data = self.hex_to_data(port["port"])
                 # Check port type prioritizing overrides if found
-                usb_connector = port.get("type_override",port.get("connector",-1))
+                usb_connector = port.get("type_override",255 if port.get("contains_hub") else port.get("connector",-1))
                 if usb_connector == -1: usb_connector = 3 if "XHCI" in self.merged_list[x]["type"] else 0
                 # Add the port with the connector type and port number
                 new_entry["IOProviderMergeProperties"]["ports"][port_name] = {
@@ -833,9 +884,12 @@ class USBMap:
                     new_items.extend([x for x in total_ports[port] if not x in original.get("items",[])])
                     original["items"] = new_items
                     original["enabled"] = True
-                if merged_p.get("comment",None):
+                if merged_p.get("comment"):
                     extras += 1
                     print("    {}{}{}".format(self.nm, merged_p["comment"], self.ce))
+                if merged_p.get("ioreg_comment") and merged_p["ioreg_comment"] != merged_p.get("comment"):
+                    extras += 1
+                    print("    {}{}{} (from ioreg)".format(self.nm, merged_p["ioreg_comment"], self.ce))
                 if len(check_ports[port]):
                     extras += len(check_ports[port])
                     print("\n".join(check_ports[port]))
@@ -978,6 +1032,7 @@ class USBMap:
                 print("Use the discovery mode from main menu first.")
                 print("")
                 return self.u.grab("Press [enter] to return to the menu...")
+            custom_name = ioreg_name = False
             index = 0
             counts = OrderedDict()
             for cont in self.merged_list:
@@ -989,7 +1044,7 @@ class USBMap:
                     port = self.merged_list[cont]["ports"][port_num]
                     ports.append(port)
                     if port.get("enabled",False): counts[cont] += 1 # Increment the port counter for the selected controller
-                    usb_connector = port.get("type_override",port.get("connector",-1))
+                    usb_connector = port.get("type_override",255 if port.get("contains_hub") else port.get("connector",-1))
                     if usb_connector == -1: usb_connector = 3 if "XHCI" in self.merged_list[cont]["type"] else 0
                     line = "[{}] {}. {} | {} | {} ({}) | {} | Type {}".format(
                         "#" if port.get("enabled",False) else " ",
@@ -1010,6 +1065,10 @@ class USBMap:
                     if port.get("comment",None):
                         extras += 1
                         print("    {}{}{}".format(self.nm, port["comment"], self.ce))
+                    if port.get("ioreg_comment") and port["ioreg_comment"] != port.get("comment"):
+                        ioreg_name = True
+                        extras += 1
+                        print("    {}{}{} (from ioreg)".format(self.nm, port["ioreg_comment"], self.ce))
                     if len(port.get("items",[])):
                         extras += len(port["items"])
                         print("\n".join(port["items"]))
@@ -1043,6 +1102,9 @@ class USBMap:
                 print("H. Use IOParentMatch (Currently IOPathMatch)")
             else:
                 print("H. Use IOPathMatch (Currently IOParentMatch)")
+            if ioreg_name:
+                extras += 1
+                print("I. Use All IOReg Custom Names")
             print("")
             print("M. Main Menu")
             print("Q. Quit")
@@ -1087,6 +1149,13 @@ class USBMap:
                 self.print_types()
             elif menu.lower() == "h":
                 path_match ^= True
+            elif menu.lower() == "i" and ioreg_name:
+                # Iterate all the ports and set "comment" to "ioreg_comment"
+                for cont in self.merged_list:
+                    for port_num in sorted(self.merged_list[cont]["ports"]):
+                        port = self.merged_list[cont]["ports"][port_num]
+                        if port.get("ioreg_comment"):
+                            port["comment"] = port["ioreg_comment"]
             elif menu[0].lower() == "r":
                 # Should be a range
                 try:
@@ -1117,7 +1186,11 @@ class USBMap:
             elif menu[0].lower() == "c":
                 # We should have a new name
                 try:
-                    nums = [int(x) for x in menu.split(":")[1].replace(" ","").split(",")]
+                    nums = [x.lower() for x in menu.split(":")[1].replace(" ","").split(",")]
+                    if "all" in nums:
+                        nums = list(range(len(ports)))
+                    else:
+                        nums = [int(x) for x in nums]
                     name = menu.split(":")[-1]
                     for x in nums:
                         x -= 1
