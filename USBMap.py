@@ -693,9 +693,12 @@ class USBMap:
             if padded_to > 0: # Generate fake ports for a guessed-injector
                 padded_to = 30 if padded_to > 30 else padded_to
                 ports = {}
+                original_ports = self.merged_list[x]["ports"]
                 for a in range(padded_to):
                     addr = self.hex_swap(hex(a+1)[2:].rjust(8,"0"))
                     ports[addr] = {"type":"Unknown","port":addr,"enabled":True}
+                    if original_ports.get(addr,{}).get("contains_hub"):
+                        ports[addr]["contains_hub"] = True
             else:
                 ports = self.merged_list[x]["ports"]
             if all((ports[y].get("enabled",False) == False for y in ports)) and skip_empty:
