@@ -834,7 +834,7 @@ class USBMap:
         last_ports  = OrderedDict()
         last_list   = []
         while True:
-            extras = 0
+            extras = index = 0
             last_w = 80
             self.check_by_ioreg(force=True)
             self.u.head("Discover USB Ports")
