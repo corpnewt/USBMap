@@ -23,13 +23,13 @@ class USBMap:
         self.smbios = None
         self.os_build_version = "Unknown"
         self.os_version = "0.0.0"
-        self.usb_port = re.compile("Apple[a-zA-Z0-9]*USB\d*[A-Z]+Port,")
-        self.usb_cont = re.compile("Apple[a-zA-Z0-9]*USB[0-9A-Z]+,")
-        self.usb_hub  = re.compile("Apple[a-zA-Z0-9]*USB\d+[a-zA-Z]*Hub,")
-        self.usb_hubp = re.compile("Apple[a-zA-Z0-9]*USB\d+[a-zA-Z]*HubPort,")
+        self.usb_port = re.compile(r"Apple[a-zA-Z0-9]*USB\d*[A-Z]+Port,")
+        self.usb_cont = re.compile(r"Apple[a-zA-Z0-9]*USB[0-9A-Z]+,")
+        self.usb_hub  = re.compile(r"Apple[a-zA-Z0-9]*USB\d+[a-zA-Z]*Hub,")
+        self.usb_hubp = re.compile(r"Apple[a-zA-Z0-9]*USB\d+[a-zA-Z]*HubPort,")
         self.usb_ext  = [
-            re.compile("<class [a-zA-Z0-9]*BluetoothHostControllerUSBTransport,"),
-            re.compile("^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,") # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
+            re.compile(r"<class [a-zA-Z0-9]*BluetoothHostControllerUSBTransport,"),
+            re.compile(r"^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,") # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
         ] # List of extra objects to match against
         self.discover_wait = 5
         self.default_names = ("XHC1","EHC1","EHC2")
