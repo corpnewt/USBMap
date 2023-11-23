@@ -1485,7 +1485,8 @@ DefinitionBlock ("", "SSDT", 2, "CORP", "RHBReset", 0x00001000)
                     self.controllers.pop(x,None) # Remove it from the controllers to map
                     print(" - {}{}{} @ {} ({}{}{})".format(self.rs,par.rjust(pad),self.ce,acpi if acpi else "Unknown ACPI Path",self.rs,"Needs Rename" if name in self.illegal_names else "Not Unique",self.ce))
                 else: print(" - {}{}{} @ {}".format(self.cs,par.rjust(pad),self.ce,acpi if acpi else "Unknown ACPI Path"))
-                if not "XHCI" in self.connected_controllers[x]["type"]: continue # Only check XHCI for RHUB paths
+                if not x in self.connected_controllers or not "XHCI" in self.connected_controllers[x]["type"]:
+                    continue # Only check legally named XHCI controllers for RHUB paths
                 # Get the RHUB name - mirrors the controller name if actually "RHUB"
                 if acpi:
                     rhub_name = "RHUB" if x.split("@")[0].upper() == self.connected_controllers[x]["parent_name"] else x.split("@")[0].upper()
