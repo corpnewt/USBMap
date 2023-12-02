@@ -213,7 +213,11 @@ class USBMap:
     def check_controllers(self):
         if not self.controllers: self.controllers = self.populate_controllers()
         assert self.controllers # Error if it's not populated after forcing
-        return self.controllers
+        # Ensure we're returning a copy
+        controller_copy = {}
+        for key in self.controllers:
+            controller_copy[key] = self.controllers[key]
+        return controller_copy
 
     def check_by_ioreg(self,force=False):
         if force or not self.by_ioreg: self.by_ioreg = self.get_by_ioreg()
