@@ -64,6 +64,8 @@ macOS supports up to 15 USB ports per controller. On a native Mac, these are dir
 
     ◦ Disabling these is ***ONLY TEMPORARY*** and done *for the sake of mapping* - you can still choose which to include in the final map
 
+    ◦ <ins>**DO NOT**</ins> disable port personalities 16 through 26, these need to stay enabled to continue mapping
+
     ◦ You will need to go through each IOKitPersonality that `USBMapInjectorEdit.command` lists for this
 8. Reboot your machine to apply the updated dummy map
 9. Go into USBMap's `D. Discover Ports` and plug a USB 2 and USB 3 device into every port - letting the script refresh between each plug
