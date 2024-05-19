@@ -6,11 +6,11 @@ Python script for mapping USB ports in macOS and creating a custom injector kext
 
 # Features
 
-- [x] No dependency on USBInjectAll
-- [x] Can map XHCI (chipset, third party, and AMD), EHCI, OHCI, and UHCI ports
-- [x] Can map USB 2 HUBs (requires the HUB's parent port uses type 255)
-- [x] Matches based on class name, not port or controller name
-- [x] Allows setting nicknames to the last-seen populated ports in discovery
+- [x] No dependency on USBInjectAll.kext
+- [x] Supports mapping XHCI (chipset, third party, and AMD), EHCI, OHCI, and UHCI ports
+- [x] Supports mapping USB 2 HUBs (requires the HUB's parent port to use type 255).
+- [x] Performs matching based on class name, not port or controller name.
+- [x] Allows users to set nicknames for the last-seen populated ports in the discovery process.
 - [x] Aggregates connected devices via session id instead of the broken port addressing
 - [x] Can use best-guess approaches to generate ACPI to rename controllers or reset RHUB devices as needed
 
@@ -115,9 +115,9 @@ Well, one of the biggest changes to affect us Hackintoshers is that Apple now im
 
 *Why 15?*
 
-While this seems kinda arbitrary, it's actually a way to limit the addressing of ports to a single 4 bit address.  macOS/OSX displays devices using hexacdecimal addressing (0-9A-F) - and when a device has other *stuff* attached to it (like a USB RHUB would have ports attached), it uses the first device's address as the starting point, and increments the next digit for the attached device.
+While this seems kinda arbitrary, it's actually a way to limit the addressing of ports to a single 4 bit address.  macOS/OSX displays devices using hexadecimal addressing (0-9A-F) - and when a device has other *stuff* attached to it (like a USB RHUB would have ports attached), it uses the first device's address as the starting point, and increments the next digit for the attached device.
 
-For instance - my chipset XHCI controller's RHUB shows up at `XHC@14000000`. That means the first port we add to that RHUB shows up at address `@14100000`, the second at `@14200000`, the 10th at `@14a00000`, and the 15th at `@14f00000`.  Each allowed port coming off the RHUB fits very neatly in one digit of addressing (cute!).  It gets a bit worrysome when you find out that *anything* above that `f` address **gets ignored** though...
+For instance - my chipset XHCI controller's RHUB shows up at `XHC@14000000`. That means the first port we add to that RHUB shows up at address `@14100000`, the second at `@14200000`, the 10th at `@14a00000`, and the 15th at `@14f00000`.  Each allowed port coming off the RHUB fits very neatly in one digit of addressing (cute!).  It gets a bit worrisome when you find out that *anything* above that `f` address **gets ignored** though...
 
 *My motherboard doesn't have anywhere near 15 ports, so... what's the catch?*
 
@@ -125,7 +125,7 @@ I'm glad you asked!  Most modern motherboard USB controllers leverage the XHCI p
 
 When EHCI (USB 2.0) came about, it was really just an expansion upon the existing UHCI/OHCI (USB 1.x) protocol which moved much of the responsibility of routing ports to the hardware side, so backward compatibility using the same physical port layout was pretty easy to ensure.  Many early EHCI controllers actually coexisted alongside UHCI or OHCI controllers.
 
-XHCI sauntered in later with big plans of USB 3 - and to fully replace EHCI/UHCI/OCHI while wrapping all that USB goodness into one neat little package.  Our friend XHCI is a bit... *different* than the prior protocols though, so some emulation was required to achieve that functionality (some have had issues with this emulation, but most will never notice).
+XHCI sauntered in later with big plans of USB 3 - and to fully replace EHCI/UHCI/OHCI while wrapping all that USB goodness into one neat little package.  Our friend XHCI is a bit... *different* than the prior protocols though, so some emulation was required to achieve that functionality (some have had issues with this emulation, but most will never notice).
 
 (You can read more about the different protocols [here](https://en.wikipedia.org/wiki/Host_controller_interface_(USB,_Firewire))!)
 
