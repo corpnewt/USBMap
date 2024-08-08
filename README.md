@@ -70,7 +70,7 @@ macOS supports up to 15 USB ports per controller. On a native Mac, these are dir
 8. Reboot your machine to apply the updated dummy map
 9. Go into USBMap's `D. Discover Ports` and plug a USB 2 and USB 3 device into every port - letting the script refresh between each plug
 
-    ◦ As some port personalities were disabled in step 6, it is normal that not plugged in USB devices will populate under a port personality at this step!
+    ◦ As some port personalities were disabled in step 7, it is normal that not plugged in USB devices will populate under a port personality at this step!
 10. Go into the `P. Edit & Create USBMap.kext` menu and change the types to match the **physical port types** (i.e. for standard USB 2 port use "0" and for USB 3 Type-A port use "3". You can find all codes by pressing T) and enable which port personalities (up to 15) you want to keep
 11. Build the final USBMap.kext and replace the dummy injector in your `EFI/OC/Kexts` folder and config.plist -> Kernel -> Add
 
