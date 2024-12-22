@@ -950,6 +950,8 @@ class USBMap:
         # Iterate the ports
         for index,port in port_list:
             n,t,p,a,e,c,r = port.split(" | ")
+            merged_c = self.get_matching_controller(c,self.controllers,self.merged_list) # Try to get the merged version for comments, if possible
+            if merged_c: c = merged_c # Ensure we have a controller if there wasn't a matching one
             assert c in self.merged_list # Verify the controller is there
             assert p in self.merged_list[c]["ports"] # Verify the port is also there
             # Locate the original
