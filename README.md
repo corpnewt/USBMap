@@ -58,15 +58,13 @@ macOS supports up to 15 USB ports per controller. On a native Mac, these are dir
 
 
 6. The USBMap script will save the discovered port information in a file, so you can quit it for now.
-7. Open the `USBMapInjectorEdit.command` and drag the USBMapDummy.kext from your EFI into the Terminal window. Then toggle off all port personalities that you didn't encounter when using "Discover ports".
-
-    ◦ Disable **any** of the first 15 port personalities that are not used for a keyboard or mouse - ***EVERYTHING ELSE*** in the first 15 can be disabled
+7. Open the `USBMapInjectorEdit.command` and drag the USBMapDummy.kext from your EFI into the Terminal window. Disable **all** of the first 15 port personalities within each of the `IOKitPersonalities` that are not used for a keyboard or mouse - ***EVERYTHING ELSE*** in the first 15 can be disabled
 
     ◦ Disabling these is ***ONLY TEMPORARY*** and done *for the sake of mapping* - you can still choose which to include in the final map
 
     ◦ <ins>**DO NOT**</ins> disable port personalities 16 through 26, these need to stay enabled to continue mapping
 
-    ◦ You will need to go through each IOKitPersonality that `USBMapInjectorEdit.command` lists for this
+    ◦ Make sure you go through each IOKitPersonality that `USBMapInjectorEdit.command` lists for this
 8. Reboot your machine to apply the updated dummy map
 9. Go into USBMap's `D. Discover Ports` and plug a USB 2 and USB 3 device into every port - letting the script refresh between each plug
 
