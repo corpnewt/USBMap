@@ -83,8 +83,15 @@ class IOReg:
             self.ioreg[plane] = self.r.run({"args":["ioreg", "-lw0", "-p", plane]})[0].split("\n")
         return self.ioreg[plane]
 
-    def get_all_devices(self, plane="IOService", force=False):
+    def get_all_devices(self, plane=None, force=False):
         # Let's build a device dict - and retain any info for each
+        if plane is None:
+            # Try to use IODeviceTree if it's populated, or if
+            # IOService is not populated
+            if self.ioreg.get("IODeviceTree") or not self.ioreg.get("IOService"):
+                plane = "IODeviceTree"
+            else:
+                plane = "IOService"
         self.get_ioreg(plane=plane,force=force)
         # We're only interested in these two classes
         class_match = (
