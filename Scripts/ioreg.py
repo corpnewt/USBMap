@@ -37,7 +37,7 @@ class IOReg:
                 # Using NAME@X,Y formating already
                 return name+"@"+addr
             if len(addr)<5:
-                return "{}@0,{}".format(name,addr)
+                return "{}@{},0".format(name,addr)
             hexaddr = int(addr,16)
             port = hexaddr & 0xFFFF
             cont = (hexaddr >> 16) & 0xFFFF
@@ -48,15 +48,10 @@ class IOReg:
             pass
         return item
 
-    def _get_pcix_uid(self,item,**kwargs):
+    def _get_pcix_uid(self,item,allow_fallback=True,fallback_uid=0,plane="IOService",force=False):
         # Helper to look for the passed item's _UID
         # Expects a XXXX@Y style string
-        force = kwargs.get("force",False)
-        plane = kwargs.get("plane","IOService")
-        allow_fallback = kwargs.get("allow_fallback",True)
-        fallback_uid = kwargs.get("fallback_uid",0)
-        if force or not self.ioreg.get(plane,None):
-            self.ioreg[plane] = self.r.run({"args":["ioreg", "-lw0", "-p", plane]})[0].split("\n")
+        self.get_ioreg(plane=plane,force=force)
         # Ensure our item ends with 2 spaces
         item = item.rstrip()+"  "
         item_uid = None
@@ -83,40 +78,149 @@ class IOReg:
             return fallback_uid
         return item_uid
 
-    def get_ioreg(self,**kwargs):
-        force = kwargs.get("force",False)
-        plane = kwargs.get("plane","IOService")
+    def get_ioreg(self,plane="IOService",force=False):
         if force or not self.ioreg.get(plane,None):
             self.ioreg[plane] = self.r.run({"args":["ioreg", "-lw0", "-p", plane]})[0].split("\n")
         return self.ioreg[plane]
 
-    def get_devices(self,dev_list = None, **kwargs):
-        force = kwargs.get("force",False)
-        plane = kwargs.get("plane","IOService")
+    def get_all_devices(self, plane="IOService", force=False):
+        # Let's build a device dict - and retain any info for each
+        self.get_ioreg(plane=plane,force=force)
+        # We're only interested in these two classes
+        class_match = (
+            "<class IOPCIDevice,",
+            "<class IOACPIPlatformDevice,"
+        )
+        # Set up some preliminary placeholders
+        path_list = {}
+        _path = []
+        dev_primed = False
+        curr_dev = {}
+        # Walk the ioreg lines and keep track of the last
+        # valid class, indentation, etc
+        for line in self.ioreg[plane]:
+            if not dev_primed:
+                # We're not looking within a device already
+                # Only prime on devices
+                if not "+-o " in line:
+                    continue # Not a class entry
+                # Ensure we're keeping track of scope
+                parts = line.split("+-o ")
+                pad = len(parts[0])
+                while len(_path):
+                    # Remove any path entries that are nested
+                    # equal to or further than our current set
+                    if _path[-1][-1] >= pad:
+                        del _path[-1]
+                    else:
+                        break
+                if class_match and not any(c in line for c in class_match):
+                    continue # Not the right class
+                # We found a device of our class - let's
+                # retain info about it
+                name = parts[1].split("  ")[0]
+                clss = parts[1].split("<class ")[1].split(",")[0]
+                # Get the decimal address in X,Y format
+                a = self._get_dec_addr(name)
+                outs = a.split("@")[1].split(",")
+                d = outs[0].upper()
+                f = 0 if len(outs) == 1 else outs[1].upper()
+                # Format as the device path
+                dev_path = "Pci(0x{},0x{})".format(d,f)
+                _path.append([
+                    dev_path,
+                    parts[1].split("  ")[0],
+                    parts[1].split("<class ")[1].split(",")[0],
+                    pad
+                ])
+                # Prime our device walker
+                dev_primed = True
+            else:
+                # We'd wait until we get a lone closing curly brace
+                # to denote the end of a device scope here
+                if line.replace("|","").strip() == "}":
+                    # Closed - check what kind of device we got
+                    dev_primed = False
+                    # Retain the curr_dev as a local var
+                    # and reset
+                    this_dev = curr_dev
+                    curr_dev = {}
+                    # PCI roots should use PNP0A03 or PNP0A08 in either
+                    # name or compatible
+                    if any(p in this_dev.get("compatible","")+this_dev.get("name","") for p in ("PNP0A03","PNP0A08")):
+                        # Got one - we need to change the type in the last _path entry
+                        # and we need to get the _UID
+                        try:
+                            _uid = int(this_dev.get("_UID","0").strip('"'))
+                        except:
+                            _uid = 0 # Fall back on zero
+                        # Update the device path
+                        _path[-1][0] = "PciRoot(0x{})".format(hex(_uid)[2:].upper())
+                        # Ensure this is top-level.  Reset if needed.
+                        # This can help prevent things like _SB taking priority
+                        # in the IOACPIPlane
+                        _path = [_path[-1]]
+                    elif len(_path) == 1:
+                        # Got a lone path that's not a PciRoot()
+                        # Skip it to avoid things like CPU objects being added
+                        continue
+                    # Get our full device path
+                    dev_path = "/".join([x[0] for x in _path])
+                    # Add a new entry to our path list
+                    if dev_path in path_list:
+                        # Skip - duplicates should not happen though.
+                        continue
+                    # Get our parent's acpi path + ours
+                    acpi_path = None
+                    if not "/" in dev_path:
+                        # We're the PCI root - just save our path
+                        # preceeded by /
+                        acpi_path = "/{}".format(_path[-1][1])
+                    else:
+                        # We should have a parent - get their dev path
+                        parent_dev_path = "/".join(dev_path.split("/")[:-1])
+                        parent_acpi_path = path_list.get(parent_dev_path,{}).get("acpi_path",None)
+                        if parent_acpi_path is not None:
+                            # We got something - append our path
+                            acpi_path = "{}/{}".format(parent_acpi_path,_path[-1][1])
+                    path_list[dev_path] = {
+                        "device_path":dev_path,
+                        "info":this_dev,
+                        "segment":_path[-1][0],
+                        "name":_path[-1][1],
+                        "name_no_addr":_path[-1][1].split("@")[0],
+                        "addr": "0" if not "@" in _path[-1][1] else _path[-1][1].split("@")[-1],
+                        "type":_path[-1][2],
+                        "acpi_path":acpi_path
+                    }
+                    continue
+                # We're walking scope here - try to retain info
+                try:
+                    name = line.split(" = ")[0].split('"')[1]
+                    curr_dev[name] = line.split(" = ")[1]
+                except Exception as e:
+                    pass
+        return path_list
+
+    def get_devices(self, dev_list=None, plane="IOService", force=False):
         # Iterate looking for our device(s)
         # returns a list of devices@addr
         if dev_list is None:
             return []
         if not isinstance(dev_list, list):
             dev_list = [dev_list]
-        if force or not self.ioreg.get(plane,None):
-            self.ioreg[plane] = self.r.run({"args":["ioreg", "-lw0", "-p", plane]})[0].split("\n")
+        self.get_ioreg(plane=plane,force=force)
         dev = []
         for line in self.ioreg[plane]:
             if any(x for x in dev_list if x in line) and "+-o" in line:
                 dev.append(line.split("+-o ")[1].split("  ")[0])
         return dev
 
-    def get_device_info(self, dev_search = None, **kwargs):
-        force = kwargs.get("force",False)
-        plane = kwargs.get("plane","IOService")
-        isclass = kwargs.get("isclass",False)
-        parent = kwargs.get("parent",None)
+    def get_device_info(self, dev_search=None, isclass=False, parent=None, plane="IOService", force=False):
         # Returns a list of all matched classes and their properties
         if not dev_search:
             return []
-        if force or not self.ioreg.get(plane,None):
-            self.ioreg[plane] = self.r.run({"args":["ioreg", "-lw0", "-p", plane]})[0].split("\n")
+        self.get_ioreg(plane=plane,force=force)
         dev = []
         primed = False
         current = None
@@ -184,14 +288,10 @@ class IOReg:
         out = [""]+out[::-1]
         return "/".join(out)
 
-    def get_acpi_path(self, device, **kwargs):
-        force = kwargs.get("force",False)
-        plane = kwargs.get("plane","IOService")
-        parent = kwargs.get("parent",None)
+    def get_acpi_path(self, device, parent=None, plane="IOService", force=False):
         if not device:
             return ""
-        if force or not self.ioreg.get(plane,None):
-            self.ioreg[plane] = self.r.run({"args":["ioreg", "-lw0", "-p", plane]})[0].split("\n")
+        self.get_ioreg(plane=plane,force=force)
         path = []
         found = False
         # First we find our device if it exists - and save each step
@@ -212,8 +312,13 @@ class IOReg:
         # Didn't find anything
         return ""
 
-    def get_device_path(self, device, **kwargs):
-        path = self.get_acpi_path(device, **kwargs)
+    def get_device_path(self, device, parent=None, plane="IOService", force=False):
+        path = self.get_acpi_path(
+            device,
+            parent=parent,
+            plane=plane,
+            force=force
+        )
         if not path:
             return ""
         out = path.lstrip("/").split("/")
