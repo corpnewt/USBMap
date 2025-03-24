@@ -174,8 +174,9 @@ class IOReg:
                     # Get our full device path
                     dev_path = "/".join([x[0] for x in _path])
                     # Add a new entry to our path list
-                    if dev_path in path_list:
-                        # Skip - duplicates should not happen though.
+                    if dev_path in path_list or not dev_path.startswith("PciRoot("):
+                        # Skip - either a duplicate (shouldn't happen), or
+                        # it lacks a PciRoot
                         continue
                     # Get our parent's acpi path + ours
                     acpi_path = None
