@@ -1,9 +1,10 @@
-import os, sys
+import os, sys, binascii, json
 from . import run
 
 class IOReg:
     def __init__(self):
         self.ioreg = {}
+        self.pci_devices = []
         self.r = run.Run()
 
     def _get_hex_addr(self,item):
@@ -82,6 +83,66 @@ class IOReg:
         if force or not self.ioreg.get(plane,None):
             self.ioreg[plane] = self.r.run({"args":["ioreg", "-lw0", "-p", plane]})[0].split("\n")
         return self.ioreg[plane]
+
+    def get_pci_devices(self, force=False):
+        # Uses system_profiler to build a list of connected
+        # PCI devices
+        if force or not self.pci_devices:
+            try:
+                self.pci_devices = json.loads(self.r.run({"args":[
+                    "system_profiler",
+                    "SPPCIDataType",
+                    "-json"
+                ]})[0])["SPPCIDataType"]
+                assert isinstance(self.pci_devices,list)
+            except:
+                # Failed - reset
+                self.pci_devices = []
+        return self.pci_devices
+
+    def get_pci_device_name(self, device_dict, pci_devices=None, force=False, use_unknown=True):
+        device_name = "Unknown PCI Device" if use_unknown else None
+        if not device_dict or not isinstance(device_dict,dict):
+            return device_name
+        if "info" in device_dict:
+            # Expand the info
+            device_dict = device_dict["info"]
+        if not isinstance(pci_devices,list):
+            pci_devices = self.get_pci_devices(force=force)
+        # Compare the vendor-id, device-id, revision-id,
+        # subsystem-id, and subsystem-vendor-id if found
+        # The system_profiler output prefixes those with "sppci-"
+        def normalize_id(_id):
+            if not _id:
+                return None
+            if _id.startswith("<") and _id.endswith(">"):
+                _id = _id.strip("<>")
+                try:
+                    _id = binascii.hexlify(binascii.unhexlify(_id)[::-1]).decode()
+                except:
+                    return None
+            try:
+                return int(_id,16)
+            except:
+                return None
+        key_list = (
+            "vendor-id",
+            "device-id",
+            "revision-id",
+            "subsystem-id",
+            "subsystem-vendor-id",
+        )
+        d_keys = [normalize_id(device_dict.get(key)) for key in key_list]
+        if any(k is None for k in d_keys):
+            # Missing keys
+            return device_name
+        for pci_device in pci_devices:
+            p_keys = [normalize_id(pci_device.get("sppci_"+key)) for key in key_list]
+            if p_keys == d_keys:
+                # Got a match - save the name if present
+                device_name = pci_device.get("_name",device_name)
+                break
+        return device_name
 
     def get_all_devices(self, plane=None, force=False):
         # Let's build a device dict - and retain any info for each
@@ -167,6 +228,9 @@ class IOReg:
                         # This can help prevent things like _SB taking priority
                         # in the IOACPIPlane
                         _path = [_path[-1]]
+                    elif _path[-1][2] == "IOACPIPlatformDevice":
+                        # Got an ACPI device that's not a PciRoot - skip
+                        continue
                     elif len(_path) == 1:
                         # Got a lone path that's not a PciRoot()
                         # Skip it to avoid things like CPU objects being added
