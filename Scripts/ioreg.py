@@ -285,6 +285,7 @@ class IOReg:
                     dev_path,
                     parts[1].split("  ")[0],
                     parts[1].split("<class ")[1].split(",")[0],
+                    line,
                     pad
                 ])
                 # Prime our device walker
@@ -349,7 +350,8 @@ class IOReg:
                         "name_no_addr":_path[-1][1].split("@")[0],
                         "addr": "0" if not "@" in _path[-1][1] else _path[-1][1].split("@")[-1],
                         "type":_path[-1][2],
-                        "acpi_path":acpi_path
+                        "acpi_path":acpi_path,
+                        "line":_path[-1][3]
                     }
                     continue
                 # We're walking scope here - try to retain info
