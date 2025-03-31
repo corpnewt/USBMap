@@ -210,8 +210,8 @@ class IOReg:
         )
         # Normalize the ids
         d_keys = [normalize_id(device_dict.get(key)) for key in key_list]
-        if any(k is None for k in d_keys):
-            # Missing keys
+        if any(k is None for k in d_keys[:2]):
+            # vendor and device ids are required
             return device_name
         if use_pci_ids:
             # Try our pci.ids list if we have one
