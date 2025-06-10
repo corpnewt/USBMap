@@ -574,7 +574,7 @@ class USBMap:
                 for line in self.ioreg[i+1:]:
                     if line.replace("|","").strip() == "}":
                         break # We hit the end of that port
-                    elif '"port" = ' in line:
+                    elif '"port" = ' in line or '"usb-port-number" = ' in line:
                         obj["port"] = line.split("<")[1].split(">")[0]
                     elif '"UsbConnector" = ' in line:
                         try: obj["connector"] = int(line.split(" = ")[1].strip())
