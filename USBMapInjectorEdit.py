@@ -106,9 +106,34 @@ class USBMap:
             elif menu.lower() == "q": self.u.custom_quit()
             else: return menu
 
+    def normalize_keys(self):
+        # Walk the IOKitPersonalities and ensure we have both the older
+        # and newer keys saved for each setting
+        if not self.plist_data or not isinstance(self.plist_data,dict) or not isinstance(self.plist_data.get("IOKitPersonalities"),dict):
+            return
+        old,new = ("port","UsbConnector"),("usb-port-number","usb-port-type")
+        for iok in self.plist_data["IOKitPersonalities"].values():
+            try:
+                port_list = iok["IOProviderMergeProperties"]["ports"]
+            except:
+                port_list = []
+            for p in port_list.values():
+                for i in range(len(old)):
+                    # Update them if they exist, otherwise
+                    # remove them if they don't
+                    if old[i] in p:
+                        p[new[i]] = p[old[i]]
+                    else:
+                        p.pop(new[i],None)
+                    if "#"+old[i] in p:
+                        p["#"+new[i]] = p["#"+old[i]]
+                    else:
+                        p.pop("#"+new[i],None)
+
     def save_plist(self):
         # Ensure the lists are the same
         try:
+            self.normalize_keys()
             with open(self.plist_path,"wb") as f:
                 plist.dump(self.plist_data,f,sort_keys=False)
             return True
@@ -312,9 +337,12 @@ class USBMap:
             pad = 4
             print_text = [""]
             pers = list(self.plist_data["IOKitPersonalities"])
+            updated = True
             for i,x in enumerate(pers,start=1):
                 personality = self.plist_data["IOKitPersonalities"][x]
                 ports = personality.get("IOProviderMergeProperties",{}).get("ports",{})
+                if any("usb-port-number" not in ports[p] and "usb-port-type" not in ports[p] for p in ports):
+                    updated = False
                 enabled = len([p for p in ports if "port" in ports[p]])
                 print_text.append("{}. {} - {}{:,}{}/{:,} enabled".format(
                     str(i).rjust(2),
@@ -329,6 +357,8 @@ class USBMap:
                 if "IOClass" in personality:
                     print_text.append("    {}Class:  {}{}".format(self.bs,personality["IOClass"],self.ce))
             print_text.append("")
+            if not updated:
+                print_text.append("U. Update Keys for Tahoe")
             print_text.append("S. Set All SMBIOS Targets")
             print_text.append("C. Set All Classes to AppleUSBHostMergeProperties")
             print_text.append("L. Set All Classes to AppleUSBMergeNub (Legacy)")
@@ -346,6 +376,8 @@ class USBMap:
             elif menu.lower() == "q":
                 self.u.resize(self.w, self.h)
                 self.u.custom_quit()
+            elif not updated and menu.lower() == "u":
+                self.save_plist()
             elif menu.lower() == "s":
                 smbios = self.choose_smbios()
                 if smbios:
@@ -431,7 +463,12 @@ class USBMap:
                     num = int(line.split("Port ")[1].split(" status")[0])+1
                     name = "UK{}".format(str(num).rjust(2,"0"))
                     hex_num = self.hex_data(self.hex_swap(hex(num)[2:].upper().rjust(8,"0")))
-                    controllers[last_name]["IOProviderMergeProperties"]["ports"][name] = {"UsbConnector":usb_connector,"port":hex_num}
+                    controllers[last_name]["IOProviderMergeProperties"]["ports"][name] = {
+                        "UsbConnector":usb_connector,
+                        "usb-port-type":usb_connector,
+                        "port":hex_num,
+                        "usb-port-number":hex_num
+                    }
         except Exception as e:
             return self.show_error("Error Parsing".format(os.path.basename(path)),e)
         print("Generating kexts...")
