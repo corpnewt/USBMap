@@ -574,9 +574,9 @@ class USBMap:
                 for line in self.ioreg[i+1:]:
                     if line.replace("|","").strip() == "}":
                         break # We hit the end of that port
-                    elif '"port" = ' in line:
+                    elif '"port" = ' in line or '"usb-port-number" = ' in line:
                         obj["port"] = line.split("<")[1].split(">")[0]
-                    elif '"UsbConnector" = ' in line:
+                    elif '"UsbConnector" = ' in line or '"usb-port-type" = ' in line:
                         try: obj["connector"] = int(line.split(" = ")[1].strip())
                         except: obj["connector"] = -1 # Unknown
                     elif '"comment" = "' in line.lower():
@@ -779,9 +779,13 @@ class USBMap:
                 usb_connector = port.get("type_override",255 if port.get("contains_hub") else port.get("connector",-1))
                 if usb_connector == -1: usb_connector = 3 if "XHCI" in self.merged_list[x]["type"] else 0
                 # Add the port with the connector type and port number
+                port_data = self.hex_to_data(port["port"])
+                prefix = "" if port.get("enabled") else "#"
                 new_entry["IOProviderMergeProperties"]["ports"][port_name] = {
                     "UsbConnector": usb_connector,
-                    "port" if port.get("enabled") else "#port": self.hex_to_data(port["port"])
+                    "{}port".format(prefix): port_data,
+                    "usb-port-type": usb_connector,
+                    "{}usb-port-number".format(prefix): port_data
                 }
                 # Retain any comments
                 if "comment" in port:
