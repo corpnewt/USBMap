@@ -358,7 +358,7 @@ class USBMap:
                     print_text.append("    {}Class:  {}{}".format(self.bs,personality["IOClass"],self.ce))
             print_text.append("")
             if not updated:
-                print_text.append("U. Update Keys for Tahoe")
+                print_text.append("U. Update Keys for macOS 26 (Tahoe)")
             print_text.append("S. Set All SMBIOS Targets")
             print_text.append("C. Set All Classes to AppleUSBHostMergeProperties")
             print_text.append("L. Set All Classes to AppleUSBMergeNub (Legacy)")
