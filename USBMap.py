@@ -31,6 +31,8 @@ class USBMap:
             re.compile(r"<class [a-zA-Z0-9]*BluetoothHostControllerUSBTransport,"),
             re.compile(r"^(?!.*IOUSBHostDevice@).*<class IOUSBHostDevice,") # Matches IOUSBHostDevice classes that are *not* named IOUSBHostDevice (avoids entry spam in discovery)
         ] # List of extra objects to match against
+        self.sp_data_type_regex = re.compile(r"^SPUSB(Host)?DataType$")
+        self.sp_data_type = self.get_sp_data_type()
         self.discover_wait = 5
         self.default_names = ("XHC1","EHC1","EHC2")
         self.cs = u"\u001b[32;1m"
@@ -70,6 +72,14 @@ class USBMap:
         # Get illegal names
         self.plugin_path = "/System/Library/Extensions/IOUSBHostFamily.kext/Contents/PlugIns"
         self.illegal_names = self.get_illegal_names()
+
+    def get_sp_data_type(self):
+        # Check for SPUSB(Host)?DataType and return it as found
+        sp_output = self.r.run({"args":["system_profiler","-listDataTypes"]})[0].strip()
+        for line in sp_output.split("\n"):
+            if self.sp_data_type_regex.match(line):
+                return line
+        return None
 
     def get_illegal_names(self):
         if not self.smbios or not os.path.exists(self.plugin_path):
@@ -309,7 +319,7 @@ class USBMap:
                     last_root = last_root["items"][p["id"]]
         # Update a local copy of addresses
         self.all_addrs = addrs
-        return ports  
+        return ports
 
     def get_sp_usb(self,indent="    "):
         # Gather a top-level array of USB devices plugged in per system_profiler
@@ -322,7 +332,9 @@ class USBMap:
                 else: # Not found - just return the empty list to avoid merging improper info
                     return sp_usb_list
             else:
-                sp_usb_xml = plist.loads(self.r.run({"args":["system_profiler","-xml","-detaillevel","mini","SPUSBDataType"]})[0])
+                if not self.sp_data_type:
+                    return []
+                sp_usb_xml = plist.loads(self.r.run({"args":["system_profiler","-xml",self.sp_data_type]})[0])
         except:
             return sp_usb_list
         items_list = []
