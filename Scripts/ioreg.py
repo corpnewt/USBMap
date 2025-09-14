@@ -1,4 +1,4 @@
-import os, sys, binascii, json
+import os, sys, binascii, json, gzip
 from . import run
 
 class IOReg:
@@ -6,9 +6,11 @@ class IOReg:
         self.ioreg = {}
         self.pci_devices = []
         self.r = run.Run()
+        self.d = None # Placeholder
         # Placeholder for a local pci.ids file.  You can get it from: https://pci-ids.ucw.cz/
         # and place it next to this file
-        self.pci_ids = None
+        self.pci_ids_url = "https://pci-ids.ucw.cz"
+        self.pci_ids = {}
 
     def _get_hex_addr(self,item):
         # Attempts to reformat an item from NAME@X,Y to NAME@X000000Y
@@ -103,24 +105,161 @@ class IOReg:
                 self.pci_devices = []
         return self.pci_devices
 
-    def get_pci_device_name_from_pci_ids(self, vendor, device, subvendor=None, subdevice=None):
-        # Takes 4-digit hex strings (no 0x prefix) for at least the vendor,
-        # and device ids.  Can optionally match subvendor and subdevice ids.
-        if not self.pci_ids:
-            # Hasn't already been processed - see if it exists, and load it if so
-            pci_ids_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),"pci.ids")
-            if os.path.isfile(pci_ids_path):
-                # Try loading the file
-                try:
-                    with open(pci_ids_path,"rb") as f:
-                        self.pci_ids = f.read().decode(errors="ignore").replace("\r","").split("\n")
-                except:
-                    return None
-            # Check again
-            if not self.pci_ids:
+    def _update_pci_ids_if_missing(self, quiet=True):
+        # Checks for the existence of pci.ids or pci.ids.gz - and attempts
+        # to download the latest if none is found.
+        pci_ids_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),"pci.ids")
+        pci_ids_gz_path = pci_ids_path+".gz"
+        found = next((x for x in (pci_ids_path,pci_ids_gz_path) if os.path.isfile(x)),None)
+        if found:
+            return found
+        # Not found - try to update
+        return self._update_pci_ids(quiet=quiet)
+
+    def _update_pci_ids(self, quiet=True):
+        if self.d is None:
+            try:
+                # Only initialize if we're actually using it
+                from . import downloader
+                self.d = downloader.Downloader()
+            except:
                 return None
-        # Helper to normalize all ids to 4 digit, lowercase
-        # hex strings
+        def qprint(text):
+            if quiet: return
+            print(text)
+        qprint("Gathering latest info from {}...".format(self.pci_ids_url))
+        try:
+            _html = self.d.get_string(self.pci_ids_url,progress=False)
+            assert _html
+        except:
+            qprint(" - Something went wrong")
+            return None
+        # Try to scrape for the .gz compressed download link
+        qprint("Locating download URL...")
+        dl_url = None
+        for line in _html.split("\n"):
+            if ">pci.ids.gz</a>" in line:
+                # Got it - build the URL
+                try:
+                    dl_url = "/".join([
+                        self.pci_ids_url.rstrip("/"),
+                        line.split('"')[1].lstrip("/")
+                    ])
+                    break
+                except:
+                    continue
+        if not dl_url:
+            qprint(" - Not located")
+            return None
+        # Got a download URL - let's actually download it
+        qprint(" - {}".format(dl_url))
+        qprint("Downloading {}...".format(os.path.basename(dl_url)))
+        target_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),os.path.basename(dl_url))
+        try:
+            saved_file = self.d.stream_to_file(dl_url,target_path,progress=not quiet)
+        except:
+            qprint(" - Something went wrong")
+            return None
+        if os.path.isfile(target_path):
+            qprint("\nSaved to: {}".format(target_path))
+            return target_path
+        qprint("Download failed.")
+        return None
+
+    def _get_pci_ids_dict(self, force=False):
+        if self.pci_ids and not force:
+            return self.pci_ids
+        self.pci_ids = {}
+        # Hasn't already been processed - see if it exists, and load it if so
+        pci_ids_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),"pci.ids")
+        pci_ids_gz_path = pci_ids_path+".gz"
+        pci_ids = None
+        if os.path.isfile(pci_ids_gz_path):
+            # Prioritize the gzip file if found
+            try:
+                pci_ids = gzip.open(pci_ids_gz_path) \
+                .read().decode(errors="ignore").replace("\r","") \
+                .split("\n")
+            except:
+                pass
+        if not pci_ids and os.path.isfile(pci_ids_path):
+            # Try loading the file
+            try:
+                with open(pci_ids_path,"rb") as f:
+                    pci_ids = f.read().decode(errors="ignore") \
+                    .replace("\r","").split("\n")
+            except:
+                pass
+        # Check again
+        if not pci_ids:
+            return self.pci_ids
+        def get_id_name_from_line(line):
+            # Helper to rip the id(s) out of the passed
+            # line and convert to an int
+            try:
+                line = line.strip()
+                if line.startswith("C "):
+                    line = line[2:]
+                _id = int(line.split("  ")[0].replace(" ",""),16)
+                name = "  ".join(line.split("  ")[1:])
+                return (_id,name)
+            except:
+                return None
+        # Walk our file and build out our dict
+        _classes = False
+        device = sub = None
+        key = "devices"
+        for line in pci_ids:
+            if line.strip().startswith("# List of known device classes"):
+                _classes = True
+                key = "classes"
+                device = sub = None
+                continue
+            if line.strip().startswith("#"):
+                continue # Skip comments
+            if line.startswith("\t\t"):
+                if sub is None: continue
+                # Got a subsystem/programming interface name
+                try:
+                    _id,name = get_id_name_from_line(line)
+                    sub[_id] = name
+                except:
+                    continue
+            elif line.startswith("\t"):
+                if device is None: continue
+                # Got a device/subclass name
+                try:
+                    _id,name = get_id_name_from_line(line)
+                    device[_id] = sub = {"name":name}
+                except:
+                    sub = None
+                    continue
+            else:
+                # Got a vendor/class
+                try:
+                    _id,name = get_id_name_from_line(line)
+                    if not key in self.pci_ids:
+                        self.pci_ids[key] = {}
+                    self.pci_ids[key][_id] = device = {"name":name}
+                except:
+                    device = sub = None
+                    continue
+        return self.pci_ids
+
+    def get_device_info_from_pci_ids(self, device_dict):
+        # Returns a dictionary containing the following info:
+        # {
+        #     "vendor":ven,
+        #     "device":dev,
+        #     "subsystem":sub,
+        #     "class":cls,
+        #     "subclass":scls,
+        #     "programming_interface":pi
+        # }
+        info = {}
+        pci_ids = self._get_pci_ids_dict()
+        if not pci_ids:
+            return info
         def normalize_id(_id):
             if not isinstance(_id,(int,str)):
                 return None
@@ -135,48 +274,29 @@ class IOReg:
                     _id = int(_id,16)
                 except:
                     return None
-            try:
-                return hex(_id)[2:].lower().rjust(4,"0")
-            except:
-                return None
-        # Ensure our ids are all lowercase
-        vendor = normalize_id(vendor)
-        device = normalize_id(device)
-        if not vendor or not device:
-            return None
-        sub_check = None
-        if subvendor and subdevice:
-            v = normalize_id(subvendor)
-            d = normalize_id(subdevice)
-            if v and d:
-                sub_check = "{} {}".format(v,d)
-        # Walk the pci ids and check for our info sequentially
-        vm = dm = sm = None
-        for line in self.pci_ids:
-            if line.strip().startswith("#"):
-                continue # Skip comments
-            if vm is None:
-                if line.startswith(vendor):
-                    vm = "  ".join(line.split("  ")[1:]).strip()
-                continue
-            # We should have a vendor here - make sure we
-            # don't jump out of scope
-            if not line.startswith("\t"):
-                break # Jumped scope
-            if dm is None:
-                if line.startswith("\t"+device):
-                    dm = "  ".join(line.split("  ")[1:]).strip()
-                    if sub_check is None:
-                        break # Nothing else to look for
-                    continue
-            else:
-                # Looking for subdevice info
-                if not line.startswith("\t\t"):
-                    break # Jumped scope
-                if line.startswith("\t\t"+sub_check):
-                    sm = "  ".join(line.split("  ")[1:]).strip()
-                    break
-        return sm or dm
+            return _id
+        device_info = {}
+        # Get the vendor, device, subsystem ids
+        v  = normalize_id(device_dict.get("vendor-id"))
+        d  = normalize_id(device_dict.get("device-id"))
+        sv = normalize_id(device_dict.get("subsystem-vendor-id"))
+        si = normalize_id(device_dict.get("subsystem-id"))
+        device_info["vendor"] = pci_ids.get("devices",{}).get(v,{}).get("name")
+        device_info["device"] = pci_ids.get("devices",{}).get(v,{}).get(d,{}).get("name")
+        if sv is not None and si is not None:
+            sid = (sv << 16) + si
+            device_info["subsystem"] = pci_ids.get("devices",{}).get(v,{}).get(d,{}).get(sid)
+        # Resolve our class-code to sub ids if possible
+        cc = normalize_id(device_dict.get("class-code"))
+        if cc is not None:
+            # 0xAAAABBCC
+            c = cc >> 16 & 0xFFFF
+            s = cc >> 8 & 0xFF
+            p = cc & 0xFF
+            device_info["class"] = pci_ids.get("classes",{}).get(c,{}).get("name")
+            device_info["subclass"] = pci_ids.get("classes",{}).get(c,{}).get(s,{}).get("name")
+            device_info["programming_interface"] = pci_ids.get("classes",{}).get(c,{}).get(s,{}).get(p)
+        return device_info
 
     def get_pci_device_name(self, device_dict, pci_devices=None, force=False, use_unknown=True, use_pci_ids=True):
         device_name = "Unknown PCI Device" if use_unknown else None
@@ -185,6 +305,10 @@ class IOReg:
         if "info" in device_dict:
             # Expand the info
             device_dict = device_dict["info"]
+        if use_pci_ids:
+            pci_dict = self.get_device_info_from_pci_ids(device_dict)
+            if pci_dict and pci_dict.get("device"):
+                return pci_dict["device"]
         # Compare the vendor-id, device-id, revision-id,
         # subsystem-id, and subsystem-vendor-id if found
         # The system_profiler output prefixes those with "sppci-"
@@ -201,7 +325,6 @@ class IOReg:
                 return int(_id,16)
             except:
                 return None
-        # Order is important here for scraping pci.ids
         key_list = (
             "vendor-id",
             "device-id",
@@ -213,12 +336,6 @@ class IOReg:
         if any(k is None for k in d_keys[:2]):
             # vendor and device ids are required
             return device_name
-        if use_pci_ids:
-            # Try our pci.ids list if we have one
-            pci_ids_name = self.get_pci_device_name_from_pci_ids(*d_keys)
-            if pci_ids_name:
-                return pci_ids_name
-        # Didn't get anything, or didn't check pci.ids
         # - check our system_profiler info
         if not isinstance(pci_devices,list):
             pci_devices = self.get_pci_devices(force=force)
