@@ -111,7 +111,7 @@ class USBMap:
         # and newer keys saved for each setting
         if not self.plist_data or not isinstance(self.plist_data,dict) or not isinstance(self.plist_data.get("IOKitPersonalities"),dict):
             return
-        old,new = ("port","UsbConnector"),("usb-port-number","usb-port-type")
+        old,new = ("port","usb-port-number","UsbConnector","usb-port-type"),("kUSBHostPortPropertyPortNumber","kUSBHostPortPropertyPortNumber","kUSBHostPortPropertyPortType","kUSBHostPortPropertyPortType")
         for iok in self.plist_data["IOKitPersonalities"].values():
             try:
                 port_list = iok["IOProviderMergeProperties"]["ports"]
@@ -267,7 +267,7 @@ class USBMap:
                 pers = self.plist_data["IOKitPersonalities"][personality]
             elif menu.lower() == "s" and "model" in pers:
                 smbios = self.choose_smbios(pers["model"])
-                if smbios: pers["model"] = smbios
+                if smbios: pers["model"] = ''.join(re.search(r'[^ ^0-9^,]*', smbios)[0])
             elif menu.lower() == "c" and "IOClass" in pers:
                 pers["IOClass"] = next_class
                 pers["CFBundleIdentifier"] = "com.apple.driver."+next_class
@@ -308,7 +308,7 @@ class USBMap:
             elif menu[0].lower() == "c":
                 # We should have a new name
                 try:
-                    nums = [int(x) for x in menu.split(":")[1].replace(" ","").split(",")]
+                    nums = [int(x) ƒfor x in menu.split(":")[1].replace(" ","").split(",")]
                     name = menu.split(":")[-1]
                     for x in nums:
                         x -= 1
@@ -341,9 +341,9 @@ class USBMap:
             for i,x in enumerate(pers,start=1):
                 personality = self.plist_data["IOKitPersonalities"][x]
                 ports = personality.get("IOProviderMergeProperties",{}).get("ports",{})
-                if any("usb-port-number" not in ports[p] and "usb-port-type" not in ports[p] for p in ports):
+                if any("kUSBHostPortPropertyPortNumber" not in ports[p] and "kUSBHostPortPropertyPortType" not in ports[p] for p in ports):
                     updated = False
-                enabled = len([p for p in ports if "port" in ports[p]])
+                enabled = len([p for p in ports if "port" in ports[p] or "usb-port-number" in ports[p]])
                 print_text.append("{}. {} - {}{:,}{}/{:,} enabled".format(
                     str(i).rjust(2),
                     x,
@@ -382,7 +382,7 @@ class USBMap:
                 smbios = self.choose_smbios()
                 if smbios:
                     for x in pers:
-                        self.plist_data["IOKitPersonalities"][x]["model"] = smbios
+                        self.plist_data["IOKitPersonalities"][x]["model"] = ''.join(re.search(r'[^ ^0-9^,]*', smbios)[0])
                 self.save_plist()
             elif menu.lower() in ("c","l"):
                 next_class = "AppleUSBHostMergeProperties" if menu.lower() == "c" else "AppleUSBMergeNub"
@@ -455,7 +455,7 @@ class USBMap:
                             "port-count": self.hex_data(self.hex_swap(hex(int(line.split("(")[1].split(" ports")[0]))[2:].upper().rjust(8,"0"))),
                             "ports": {}
                         },
-                        "model": model
+                        "model": ''.join(re.search(r'[^ ^0-9^,]*', self.smbios)[0])
                     }
                     if t == "XHCI": controllers[last_name]["IOProviderMergeProperties"]["kUSBMuxEnabled"] = True
                 elif line.startswith("Port") and last_name != None:
@@ -464,10 +464,8 @@ class USBMap:
                     name = "UK{}".format(str(num).rjust(2,"0"))
                     hex_num = self.hex_data(self.hex_swap(hex(num)[2:].upper().rjust(8,"0")))
                     controllers[last_name]["IOProviderMergeProperties"]["ports"][name] = {
-                        "UsbConnector":usb_connector,
-                        "usb-port-type":usb_connector,
-                        "port":hex_num,
-                        "usb-port-number":hex_num
+                        "kUSBHostPortPropertyPortType":usb_connector,
+                        "kUSBHostPortPropertyPortNumber":hex_num
                     }
         except Exception as e:
             return self.show_error("Error Parsing".format(os.path.basename(path)),e)
