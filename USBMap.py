@@ -586,9 +586,9 @@ class USBMap:
                 for line in self.ioreg[i+1:]:
                     if line.replace("|","").strip() == "}":
                         break # We hit the end of that port
-                    elif '"port" = ' in line or '"usb-port-number" = ' in line:
+                    elif '"port" = ' in line or '"usb-port-number" = ' in line or '"kUSBHostPortPropertyPortNumber" = ' in line:
                         obj["port"] = line.split("<")[1].split(">")[0]
-                    elif '"UsbConnector" = ' in line or '"usb-port-type" = ' in line:
+                    elif '"UsbConnector" = ' in line or '"usb-port-type" = ' in line or '"kUSBHostPortPropertyPortType" = ' in line:
                         try: obj["connector"] = int(line.split(" = ")[1].strip())
                         except: obj["connector"] = -1 # Unknown
                     elif '"comment" = "' in line.lower():
@@ -739,7 +739,7 @@ class USBMap:
                     "port-count": 0,
                     "ports": OrderedDict()
                 },
-                "model": self.smbios
+                "model": ''.join(re.search(r'[^ ^0-9^,]*', self.smbios)[0])
             }
             pop_keys = ("IONameMatch","locationID","IOPathMatch","IOParentMatch")
             save_key = "IONameMatch"
@@ -794,17 +794,15 @@ class USBMap:
                 port_data = self.hex_to_data(port["port"])
                 prefix = "" if port.get("enabled") else "#"
                 new_entry["IOProviderMergeProperties"]["ports"][port_name] = {
-                    "UsbConnector": usb_connector,
-                    "{}port".format(prefix): port_data,
-                    "usb-port-type": usb_connector,
-                    "{}usb-port-number".format(prefix): port_data
+                    "kUSBHostPortPropertyPortType": usb_connector,
+                    "{}kUSBHostPortPropertyPortNumber".format(prefix): port_data
                 }
                 # Retain any comments
                 if "comment" in port:
                     new_entry["IOProviderMergeProperties"]["ports"][port_name]["Comment"] = port["comment"]
             new_entry["IOProviderMergeProperties"]["port-count"] = top_data # Keep track of the highest port number used
             # Ensure we have a unique entry name
-            entry_name = self.smbios+"-"+x.split("@")[0]
+            entry_name = ''.join(re.search(r'[^ ^0-9^,]*', self.smbios)[0])+"-"+x.split("@")[0]
             entry_num = 0
             while True:
                 test_name = entry_name
@@ -1255,7 +1253,7 @@ class USBMap:
         for cont in cont_list:
             con_type = "XHCI"
             print("Checking {}...".format(cont))
-            c_type = self.connected_controllers[cont]["type"]
+            c_type = ''.join(re.findall("[A-Za-z]+", self.connected_controllers[cont]["type"]))
             if "XHCI" in c_type:
                 print(" - XHCI device")
             elif "EHCI" in c_type:
