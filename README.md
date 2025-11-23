@@ -56,21 +56,24 @@ macOS supports up to 15 USB ports per controller. On a native Mac, these are dir
 
     ◦ You can verify the dummy map is applied if all ports use a `UKxx` naming scheme (eg. `UK01`, `UK02`, etc)
 
+    ◦ It is advised to nickname the personalities you are mapping here - as you **will** need to know that information later.  Best practice is to use nicknames that reference location and the physical type (i.e. `Front Left USB 3.0 Type-A`).
 
-6. The USBMap script will save the discovered port information in a file, so you can quit it for now.
-7. Open the `USBMapInjectorEdit.command` and drag the USBMapDummy.kext from your EFI into the Terminal window. Disable **all** of the first 15 port personalities within each of the `IOKitPersonalities` that are not used for a keyboard or mouse - ***EVERYTHING ELSE*** in the first 15 can be disabled
+7. The USBMap script will save the discovered port information in a file, so you can quit it for now.
+8. Open the `USBMapInjectorEdit.command` and drag the USBMapDummy.kext from your EFI into the Terminal window. Disable **all** of the first 15 port personalities within each of the `IOKitPersonalities` that are not used for a keyboard or mouse - ***EVERYTHING ELSE*** in the first 15 can be disabled
 
     ◦ Disabling these is ***ONLY TEMPORARY*** and done *for the sake of mapping* - you can still choose which to include in the final map
 
     ◦ <ins>**DO NOT**</ins> disable port personalities 16 through 26, these need to stay enabled to continue mapping
 
     ◦ Make sure you go through each IOKitPersonality that `USBMapInjectorEdit.command` lists for this
-8. Reboot your machine to apply the updated dummy map
-9. Go into USBMap's `D. Discover Ports` and plug a USB 2 and USB 3 device into every port - letting the script refresh between each plug
+   
+10. Reboot your machine to apply the updated dummy map
+11. Go into USBMap's `D. Discover Ports` and plug a USB 2 and USB 3 device into every port - letting the script refresh between each plug
 
     ◦ As some port personalities were disabled in step 7, it is normal that not plugged in USB devices will populate under a port personality at this step!
-10. Go into the `P. Edit & Create USBMap.kext` menu and change the types to match the **physical port types** (i.e. for standard USB 2 port use "0" and for USB 3 Type-A port use "3". You can find all codes by pressing T) and enable which port personalities (up to 15) you want to keep
-11. Build the final USBMap.kext and replace the dummy injector in your `EFI/OC/Kexts` folder and config.plist -> Kernel -> Add
+    
+13. Go into the `P. Edit & Create USBMap.kext` menu and change the types to match the **physical port types** (i.e. for standard USB 2 port use "0" and for USB 3 Type-A port use "3". You can find all codes by pressing T) and enable which port personalities (up to 15) you want to keep
+14. Build the final USBMap.kext and replace the dummy injector in your `EFI/OC/Kexts` folder and config.plist -> Kernel -> Add
 
 The dummy injector + USBMapInjectorEdit steps are to allow you to map using a "sliding window" of sorts.  Since macOS can only see 15 port personalities per controller at one time, you need to map what's visible, then disable some to make room for the next sweep - and map again
 
